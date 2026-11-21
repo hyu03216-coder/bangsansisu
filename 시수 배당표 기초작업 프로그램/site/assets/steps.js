@@ -28,8 +28,8 @@ const STEPS = [
    todo:['2학년·3학년 배정내역 엑셀 올리기','바뀌는 분반·시수 확인 후 [이대로 반영하기]','수강인원 표에서 인원이 몰린 분반 확인'],
    views:[['review','배정내역 올리기'],['subjects','수강인원·분반 확인']]},
   {id:'quota',    title:'정원·창체 배분',    short:'정원·창체',
-   desc:'교사 정원과 강사 시수를 넣고, 창체·부장·통합 과목 시수를 전공별로 나눕니다.',
-   todo:['학교 전체 교사 정원(또는 전공별 정원) 입력','강사가 맡는 시수 입력','창체·부장·통합 과목 시수를 전공별로 나누기'],
+   desc:'교사 정원과 강사 시수를 넣고, 창체·부장 시수를 전공별로 나눕니다. 통합사회·통합과학은 사회과·과학과 전체로 계산돼요.',
+   todo:['학교 전체 교사 정원(또는 전공별 정원) 입력','강사가 맡는 시수 입력','창체·부장 시수를 전공별로 나누기'],
    views:[['chang','정원·강사·창체']]},
   {id:'teacher',  title:'교사 배정',         short:'교사 배정',
    desc:'교사 명단을 넣고, 분반마다 담당 교사를 정합니다. 교사별 시수가 바로 합산됩니다.',
@@ -177,8 +177,8 @@ function vStepCheck(){
   const shared = (S.subjects||[]).filter(s=>(isShared(s.major)||s.major===NOMAJOR) && s.include!==false);
   const groupShared = {};
   shared.forEach(s=>{ (groupShared[s.major]=groupShared[s.major]||[]).push(s); });
-  const sharedHelp = {'사회(통합)':'지리·일반사회·윤리 선생님이 나눠 맡아요 · 5단계에서 전공별로 나눠요',
-    '과학(통합)':'물리·화학·생명과학·지구과학 선생님이 나눠 맡아요 · 5단계에서 전공별로 나눠요',
+  const sharedHelp = {'사회(통합)':'지리·일반사회·윤리 선생님이 나눠 맡아요 · 사회과 계에 합산',
+    '과학(통합)':'물리·화학·생명과학·지구과학 선생님이 나눠 맡아요 · 과학과 계에 합산',
         '전공없음':'정원 계산에서 빠져요 · 마지막에 교사별 시수를 맞출 때 아무 선생님에게나 배정해요 (6단계)'};
   const order=['사회(통합)','과학(통합)','전공없음'];
   const sharedHtml = Object.keys(groupShared).length ? order.filter(m=>groupShared[m]).map(m=>[m,groupShared[m]]).map(([m,list])=>{

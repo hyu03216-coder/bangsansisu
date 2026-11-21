@@ -5,7 +5,7 @@ const MAJORS = [
   {id:'국어'},{id:'수학'},{id:'영어'},{id:'역사'},
   {id:'지리',group:'사회'},{id:'일반사회',group:'사회'},{id:'윤리',group:'사회'},{id:'사회(통합)',group:'사회'},
   {id:'물리',group:'과학'},{id:'화학',group:'과학'},{id:'생명과학',group:'과학'},{id:'지구과학',group:'과학'},{id:'과학(통합)',group:'과학'},
-  {id:'체육'},{id:'음악'},{id:'미술'},{id:'일본어'},{id:'중국어'},{id:'가정'},{id:'정보'},{id:'보건'},{id:'진로'},{id:'교양'},{id:'온라인'},{id:'전공없음'},{id:'미정'}
+  {id:'체육'},{id:'음악'},{id:'미술'},{id:'일본어'},{id:'중국어'},{id:'가정'},{id:'정보'},{id:'보건'},{id:'진로'},{id:'온라인'},{id:'전공없음'},{id:'미정'}
 ];
 const MAJOR_IDS = MAJORS.map(m=>m.id);
 const GROUPS = {'사회':['지리','일반사회','윤리','사회(통합)'],'과학':['물리','화학','생명과학','지구과학','과학(통합)']};
@@ -46,14 +46,13 @@ const NAME_MAJOR = {};
  ['정보','정보 인공지능기초 데이터과학 소프트웨어와생활 데이터시각화프로그래밍'],
  ['보건','공중보건 보건'],
  ['진로','진로'],
- ['교양','진로·학업설계 진로∙학업설계 진로학업설계 진로와직업 인간과심리 논리와사고 환경과생태'],
- ['전공없음','창의공학설계 언어생활과한자']
+ ['전공없음','창의공학설계 언어생활과한자 진로·학업설계 진로∙학업설계 진로학업설계 진로와직업 인간과심리 논리와사고 환경과생태']
 ].forEach(([m,list])=>list.split(' ').forEach(n=>NAME_MAJOR[n]=m));
 
 function guessMajor(name, group, grade){
   const k = norm(name);
   if (k==='창의공학설계' || k==='언어생활과한자') return '전공없음';
-  if (grade===3 && k.includes('진로')) return '교양';
+  if (grade===3 && k.includes('진로')) return '전공없음';
   if (grade===1 && k==='진로') return '진로';
   if (NAME_MAJOR[k]) return NAME_MAJOR[k];
   const g = norm(group);
@@ -64,8 +63,8 @@ function guessMajor(name, group, grade){
   if (g.startsWith('예술')) return k.includes('음악')?'음악':'미술';
   if (g.startsWith('제2외국어')) return k.includes('일본')?'일본어':k.includes('중국')?'중국어':'전공없음';
   if (g.startsWith('기술')) return '정보';
-  if (g.startsWith('교양')) return grade===1 && k==='진로' ? '진로' : '교양';
-  if (g.startsWith('진로')) return grade===3 ? '교양' : '진로';
+  if (g.startsWith('교양')) return grade===1 && k==='진로' ? '진로' : '전공없음';
+  if (g.startsWith('진로')) return grade===3 ? '전공없음' : '진로';
   if (g.startsWith('사회')) return '일반사회';
   if (g.startsWith('과학')) return '과학(통합)';
   return '전공없음';
@@ -114,7 +113,7 @@ function blankState(){
     version:3, year:2027, savedAt:0,
     classes:{1:{g:8,s:2},2:{g:8,s:2},3:{g:8,s:2}},
     subjects:[], teachers:[],
-    annualTeachingAvg:null, schoolQuota:null, sharedAlloc:{1:{},2:{}}, capacity:{'진로':{quota:1}}, chang:{items:JSON.parse(JSON.stringify(DEFAULT_CHANG)), alloc:{1:{},2:{}}},
+    annualTeachingAvg:null, schoolQuota:null, sharedAlloc:{1:{},2:{}}, capacity:{}, chang:{items:JSON.parse(JSON.stringify(DEFAULT_CHANG)), alloc:{1:{},2:{}}},
     assignMeta:{}, pyeonjeMeta:{},
     sign:['담당','교과주임','교육과정부장','교감','교장']
   };
@@ -160,7 +159,7 @@ function fixedSections(sub, old){
   return labs.map(([label,track])=>({label, track, n:null, teacher:(keep[label]||{}).teacher||''}));
 }
 
-/* ----- 1학년 진로(1,2학기 1~10반 1시수), 3학년 진로->교양, 창의공학설계/언어생활과한자->온라인 자동 보정 ----- */
+/* ----- 1학년 진로(1,2학기 1~10반 1시수) 자동 보정, 교양·온라인학교·3학년 진로 → 전공없음 (6.5) ----- */
 function ensureSpecialSubjects(){
   [1,2].forEach(sem=>{
     let jinro = S.subjects.find(s=>s.grade===1 && s.sem===sem && norm(s.name)==='진로');
@@ -184,9 +183,9 @@ function ensureSpecialSubjects(){
       if (k==='창의공학설계' || k==='언어생활과한자') s.major = '전공없음';
     }
     if (s.major==='온라인') s.major = '전공없음'; // 6.5: 공동배분(온라인)은 전공없음으로 통합
-    if (s.grade===3 && (k.includes('진로') || norm(s.group).includes('교양') || s.major==='진로')){
-      s.major = '교양';
-    }
+    if (s.major==='교양') s.major = '전공없음'; // 6.5: '교양' 전공 삭제
+    if (s.grade===3 && s.major==='진로') s.major = '전공없음';
+    if (s.online) s.major = '전공없음'; // 6.5: 온라인학교 과목은 모두 전공없음(정원 제외)
   });
 }
 
@@ -343,7 +342,7 @@ function cgChangAssigned(sem){
   return usedMajors().filter(m=>!isShared(m)).reduce((t,m)=>t+changOf(m,sem),0);
 }
 function cgSharedSources(sem){
-  return SHARED.filter(m=>m!=='온라인' && majorHours(m,sem)>0);
+  return []; // 6.5: 통합 과목은 전공별로 나누지 않고 사회과·과학과 전체(계)로 계산
 }
 function cgSharedAllocated(source,major,sem){
   return num(((((S.sharedAlloc||{})[sem]||{})[source]||{})[major]));
@@ -360,9 +359,10 @@ function cgShareSummary(sem){
   return {target,assigned,gap:target-assigned};
 }
 function cgEffectiveHours(major,sem){
-  if(isShared(major) || major===NOMAJOR) return 0; // 온라인·통합은 담당 전공으로만 정원 계산, 전공없음은 정원 계산 제외
+  if(major===NOMAJOR || major==='온라인') return 0; // 전공없음은 정원 계산 제외
+  if(isShared(major)) return majorHours(major,sem); // 6.5: 통합 과목 시수는 교과군(사회과·과학과) 계에만 더함
   const st=majorStats(major,sem);
-  return st.total + cgSharedTarget(major,sem) - st.tutor;
+  return st.total - st.tutor;
 }
 function cgQuotaInfo(){
   const manual=Number(S.schoolQuota);
@@ -378,7 +378,7 @@ function cgBreakdown(sem){
   const extra=cgChangNeed(sem);
   const tutor=usedMajors().reduce((t,m)=>t+num(cap(m)['tutor'+sem]),0);
   const total=curriculum+extra-tutor;
-  const allocated=usedMajors().filter(m=>!isShared(m)).reduce((t,m)=>t+cgEffectiveHours(m,sem),0);
+  const allocated=usedMajors().reduce((t,m)=>t+cgEffectiveHours(m,sem),0);
   return {curriculum,extra,tutor,total,allocated,gap:total-allocated,
     changAllocated:cgChangAssigned(sem),changGap:extra-cgChangAssigned(sem),
     share:cgShareSummary(sem)};
@@ -411,7 +411,7 @@ function cgNeededSchool(sem){
 function cgNeededGroup(majors,sem){
   // 전교 계는 미배정 창체·온라인 시수를 포함해야 실제 전체 정원과 일치한다.
   if(majors.length===displayMajors().length && majors.every(m=>displayMajors().includes(m))) return cgNeededSchool(sem);
-  return cgNeededHours(majors.filter(m=>!isShared(m)).reduce((t,m)=>t+(sem===1||sem===2?cgEffectiveHours(m,sem):(cgEffectiveHours(m,1)+cgEffectiveHours(m,2))/2),0));
+  return cgNeededHours(majors.reduce((t,m)=>t+(sem===1||sem===2?cgEffectiveHours(m,sem):(cgEffectiveHours(m,1)+cgEffectiveHours(m,2))/2),0));
 }
 const cgFmtNeed = n => n==null?'—':(Math.round(n*10)/10).toFixed(1);
 function majorGradeHours(major, sem, grade){
@@ -535,10 +535,9 @@ function migrate(st){
   st.sharedAlloc = st.sharedAlloc||{1:{},2:{}};
   [1,2].forEach(sem=>{st.sharedAlloc[sem]=st.sharedAlloc[sem]||{};});
   S = st;
-  // 진로는 전공 교사 1명이 전담합니다. 기존 데이터의 중복 창체 진로는
+  // 기존 데이터의 중복 창체 진로는
   // 교과(1학년 1~10반 × 1시수)에 이미 포함되어 있으므로 제거합니다.
   S.capacity = S.capacity||{};
-  S.capacity['진로']={...(S.capacity['진로']||{}),quota:1};
   const duplicateCareerItems=(S.chang.items||[]).filter(it=>norm(it.name)==='진로');
   if(duplicateCareerItems.length){
     const oldIds=new Set(duplicateCareerItems.map(it=>it.id));
@@ -1100,8 +1099,8 @@ function vSetup(){
       <div class="cg-grade-grid">${grades}</div>
       <details class="cg-rules"><summary>기본 적용 규칙 확인</summary><div class="rule-list">
         <div class="cg-rule"><span class="tag">1학년</span><div><strong>진로</strong><p>1·2학기 · 1~10반 · 각 1시수 · 전공: 진로</p></div></div>
-        <div class="cg-rule"><span class="tag">3학년</span><div><strong>진로·학업 설계</strong><p>2학기 · 전공: 교양</p></div></div>
-        <div class="cg-rule"><span class="tag">온라인</span><div><strong>창의 공학 설계 / 언어생활과 한자</strong><p>창체 및 교과외로 공동 배분 · 전담 전공 없음</p></div></div>
+        <div class="cg-rule"><span class="tag">3학년</span><div><strong>진로·학업 설계</strong><p>2학기 · 전공없음 (정원 제외)</p></div></div>
+        <div class="cg-rule"><span class="tag">온라인</span><div><strong>창의 공학 설계 / 언어생활과 한자</strong><p>온라인학교 과목 · 전공없음 (정원 제외)</p></div></div>
       </div></details>
       <p class="cg-small-note">일반·과중 구분은 반별 수강인원 및 시수 산정에 반영됩니다. 학급 수 변경 시 지정·교차 과목의 분반이 다시 계산됩니다.</p>
     </section>
@@ -1577,11 +1576,11 @@ function vChang(){
   const sumTeach=teacherMajors.reduce((t,m)=>t+num(cap(m).quota),0);
   const capRows=majors.map(m=>{
     const c=cap(m),shared=isShared(m)||m===NOMAJOR;
-    return `<tr><td><b>${esc(majorLabel(m))}</b>${shared?`<br><span class="cg-shared-label">${m===NOMAJOR?'정원 계산에서 빠짐':'다른 전공에 나눠 줌'}</span>`:''}</td>
-      <td class="n">${shared?'—':cgEffectiveHours(m,1)}</td>
-      <td class="n">${shared?'—':cgEffectiveHours(m,2)}</td>
-      <td class="n cg-need-value"><b>${shared?(m===NOMAJOR?'제외':'나눠 줌'):cgFmtNeed(cgNeededMajor(m,null))}</b></td>
-      <td class="c">${shared?'<span class="muted small">—</span>':m==='진로'?'<b title="1학년 진로 수업 전담 1명">1명 (전담)</b>':`<input type="number" min="0" data-cap="${m}" data-f="quota" value="${c.quota??''}" placeholder="미입력">`}</td>
+    return `<tr><td><b>${esc(majorLabel(m))}</b>${shared?`<br><span class="cg-shared-label">${m===NOMAJOR?'정원 계산에서 빠짐':esc(groupOf(m)||'')+'과 전체로 계산'}</span>`:''}</td>
+      <td class="n">${m===NOMAJOR?'—':cgEffectiveHours(m,1)}</td>
+      <td class="n">${m===NOMAJOR?'—':cgEffectiveHours(m,2)}</td>
+      <td class="n cg-need-value"><b>${m===NOMAJOR?'제외':shared?'계에 포함':cgFmtNeed(cgNeededMajor(m,null))}</b></td>
+      <td class="c">${shared?'<span class="muted small">—</span>':`<input type="number" min="0" data-cap="${m}" data-f="quota" value="${c.quota??''}" placeholder="미입력">`}</td>
       <td class="c">${shared?'—':`<input type="number" min="0" data-cap="${m}" data-f="tutor1" value="${c.tutor1??''}">`}</td>
       <td class="c">${shared?'—':`<input type="number" min="0" data-cap="${m}" data-f="tutor2" value="${c.tutor2??''}">`}</td>
       <td>${shared?'':`<input type="text" style="width:132px" data-cap="${m}" data-f="memo" value="${esc(c.memo||'')}">`}</td></tr>`;
@@ -1597,22 +1596,15 @@ function vChang(){
     const need=num(it['need'+sem]),v=colTot[i],ok=v===need;
     return `<td class="c"><b>${v}/${need}</b> ${ok?'<span class="pill ok">✓</span>':`<span class="pill ${v>need?'bad':'warn'}">${v>need?'+':''}${v-need}</span>`}</td>`;
   }).join('');
-  const sources=cgSharedSources(sem);
-  const sharedGrid=teacherMajors.map(m=>`<tr><td><b>${esc(m)}</b></td>${sources.map(source=>`<td class="c"><input type="number" min="0" step="1" class="w40" data-shared="${esc(source)}" data-shmaj="${esc(m)}" value="${((((S.sharedAlloc||{})[sem]||{})[source]||{})[m])??''}" aria-label="${esc(m)} ${esc(source)} 배정시수"></td>`).join('')}<td class="n strong">${cgSharedTarget(m,sem)||''}</td></tr>`).join('');
-  const sharedChecks=sources.map(source=>{
-    const need=majorHours(source,sem),v=cgSharedAssigned(source,sem),diff=need-v;
-    return `<td class="c"><b>${v}/${need}</b> <span class="pill ${diff===0?'ok':diff<0?'bad':'warn'}">${diff===0?'✓':diff>0?diff+' 남음':(-diff)+' 넘침'}</span></td>`;
-  }).join('');
   const gapText=(g)=>g===0?'다 나눔':g>0?`${fmt1(g)}시수 남음`:`${fmt1(-g)}시수 넘침`;
   const warnings=[];
   if(b.changGap!==0)warnings.push(`창체·부장 등 ${gapText(b.changGap)}`);
-  if(b.share.gap!==0)warnings.push(`통합 과목 ${gapText(b.share.gap)}`);
   const status=warnings.length?`<div class="cg-balance-alert" role="status"><b>${sem}학기 아직 나누지 않은 시수</b> · ${esc(warnings.join(' / '))}</div>`:
-      `<div class="cg-balance-good" role="status">${sem}학기 창체·부장 등과 통합 과목 시수를 모두 나눴어요.</div>`;
+      `<div class="cg-balance-good" role="status">${sem}학기 창체·부장 등 시수를 모두 나눴어요.</div>`;
   return `<div class="cg-capacity-page">
     <div class="panel"><h2>① 교사 정원</h2><p class="cg-help" style="margin-top:-4px">학교 전체 정원을 넣거나, 비워 두고 아래 표에 전공별 정원을 넣으세요. 넣으면 평균 시수와 전공별 필요정원이 계산돼요.</p>
       <div class="cg-school-quota">
-        <div class="cg-quota-field"><label for="cgSchoolQuota">학교 전체 교사 정원</label><input id="cgSchoolQuota" data-schoolquota="1" type="number" min="1" step="1" placeholder="정원 확정 후 입력" value="${S.schoolQuota??''}"><small>진로 교사 1명 포함 · 비워 두면 전공별 정원을 더해요</small></div>
+        <div class="cg-quota-field"><label for="cgSchoolQuota">학교 전체 교사 정원</label><input id="cgSchoolQuota" data-schoolquota="1" type="number" min="1" step="1" placeholder="정원 확정 후 입력" value="${S.schoolQuota??''}"><small>비워 두면 전공별 정원을 더해요</small></div>
         <div class="cg-quota-metric"><span>학교 전체 시수 (1·2학기 평균)</span><strong>${fmt1((br1.total+br2.total)/2)}</strong><small>교과 + 창체·부장 등 − 강사</small></div>
         <div class="cg-quota-metric"><span>교사 1인 평균 시수</span><strong>${schoolAvg==null?'—':fmt1(schoolAvg)}</strong><small>${schoolAvg==null?'정원을 넣으면 계산돼요':'시수/명'}</small></div>
       </div>
@@ -1620,8 +1612,8 @@ function vChang(){
         ${[1,2].map(n=>{const x=cgBreakdown(n);return `<tr><td class="c"><b>${n}학기</b></td><td class="n">${x.curriculum}</td><td class="n">+ ${x.extra}</td><td class="n">${x.tutor?'- '+x.tutor:'0'}</td><td class="n strong">${x.total}</td><td class="n">${x.allocated}</td><td class="n"><span class="pill ${x.gap===0?'ok':x.gap>0?'warn':'bad'}">${x.gap===0?'다 나눔':x.gap>0?x.gap+'시수 남음':(-x.gap)+'시수 넘침'}</span></td></tr>`;}).join('')}
       </tbody></table></div>
       <details class="cg-calc"><summary>계산 방법 보기</summary><p class="cg-help"><b>교사 1인 평균 시수</b> = (교과 시수 + 창체·부장 등 − 강사 시수)의 1·2학기 평균 ÷ 교사 정원<br>
-      <b>전공별 필요정원</b> = (그 전공의 교과 시수 + 그 전공이 나눠 받은 창체·부장·통합 시수 − 강사 시수)의 1·2학기 평균 ÷ 교사 1인 평균 시수<br>
-      '전공없음' 과목은 정원 계산에서 빠져요. 1학년 진로는 진로 교사 1명이 맡는 교과로 한 번만 계산해요. 지금 정원 기준: ${esc(cQ.source)}.</p></details>
+      <b>전공별 필요정원</b> = (그 전공의 교과 시수 + 그 전공이 나눠 받은 창체·부장 시수 − 강사 시수)의 1·2학기 평균 ÷ 교사 1인 평균 시수<br>
+      <b>사회과·과학과 계</b> = (전공 시수 합 + 통합사회·통합과학 시수) ÷ 사회과·과학과 전체 인원 — 통합 과목은 전공별로 나누지 않아요.<br>'전공없음'(교양·온라인학교 포함) 과목은 정원 계산에서 빠져요. 지금 정원 기준: ${esc(cQ.source)}.</p></details>
       ${[1,2].some(n=>cgDuplicateWarnings(n))?`<div class="cg-balance-alert"><b>겹쳐서 계산될 뻔한 시수</b> · ${[1,2].map(n=>cgDuplicateWarnings(n)?`${n}학기: ${esc(cgDuplicateWarnings(n))}`:'').filter(Boolean).join(' / ')}</div>`:''}
     </div>
     <div class="panel"><h2>② 전공별 정원·강사 시수</h2><p class="cg-help" style="margin-top:-4px">강사 시수 = 학교 교사가 아닌 강사가 맡는 시수예요. 평균을 낼 때 빼요.</p>
@@ -1629,7 +1621,7 @@ function vChang(){
       <tr class="tot"><td>학교 전체</td><td class="n">${br1.total}</td><td class="n">${br2.total}</td><td class="n cg-need-value">${cgFmtNeed(cgNeededSchool(null))}</td><td class="n">${cQ.quota??'—'}</td><td class="n">${br1.tutor}</td><td class="n">${br2.tutor}</td><td></td></tr></tbody></table></div>
     </div>
     <div class="panel"><h2>③ 창체·부장 등 필요 시수</h2>
-      <p class="cg-help">학교 전체에서 맡아야 하는 시수예요. 예: 담임(자치) 30학급이면 30. 1학년 진로는 진로 교사가 맡는 교과로 따로 계산돼요.</p>
+      <p class="cg-help">학교 전체에서 맡아야 하는 시수예요. 예: 담임(자치) 30학급이면 30. 1학년 진로는 '진로' 전공 교과로 따로 계산돼요.</p>
       <div class="tablewrap"><table class="t"><thead><tr><th>항목</th><th>1학기</th><th>2학기</th><th></th></tr></thead><tbody>${itemRows}</tbody></table></div>
       <div class="row" style="margin-top:8px"><button class="btn pri sm" data-act="itemAdd">+ 항목 추가</button></div>
     </div>
@@ -1637,11 +1629,6 @@ function vChang(){
       <span style="flex:1"></span><button class="btn sm" data-act="copyChang">${sem}학기 값을 ${3-sem}학기에도 똑같이</button><button class="btn sm" data-act="fillFromTeachers">교사 탭에 적은 값으로 채우기</button></div>
       <div class="tablewrap"><table class="t"><thead><tr><th>전공</th>${items.map(it=>`<th>${esc(it.name)}</th>`).join('')}<th>합계</th></tr></thead>
       <tbody>${grid}<tr class="tot"><td>나눈 시수 / 필요</td>${chk}<td class="n">${colTot.reduce((a,bb)=>a+bb,0)} / ${cgChangNeed(sem)}</td></tr></tbody></table></div>
-    </div>
-    <div class="panel"><h2>⑤ 통합 과목 시수를 전공별로 나누기</h2>
-      <p class="cg-help">통합사회·통합과학처럼 전담 교사가 없는 과목이에요. 맡을 전공에 시수를 나눠 적어 주세요.</p>
-      ${sources.length?`<div class="tablewrap"><table class="t"><thead><tr><th>담당 전공</th>${sources.map(source=>`<th>${esc(source)}<br><small>총 ${majorHours(source,sem)}시수</small></th>`).join('')}<th>배정 합계</th></tr></thead>
-      <tbody>${sharedGrid}<tr class="tot"><td>나눈 시수 / 필요</td>${sharedChecks}<td class="n">${b.share.assigned} / ${b.share.target}</td></tr></tbody></table></div>`:'<p class="muted small">이 학기에는 나눌 통합 과목이 없어요.</p>'}
       ${status}
     </div>
   </div>`;
