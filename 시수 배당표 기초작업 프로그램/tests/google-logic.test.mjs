@@ -9,6 +9,7 @@ function mockApp(){
  class Sheet{
   constructor(){this.rows=[];}
   appendRow(row){this.rows.push([...row]);}
+  deleteRows(start,n){this.rows.splice(start-1,n);}
   getLastRow(){return this.rows.length;}
   setFrozenRows(){}
   getRange(row,col,n,m){
@@ -60,4 +61,26 @@ test('student-level rosters cannot be saved',()=>{
  const {call}=mockApp();
  const v=call({action:'save',token:'A'.repeat(32),baseVersion:0,data:{...sample,workspaces:{2027:{...sample.workspaces[2027],studentRows:[{name:'private'}]}}}});
  assert.equal(v.ok,false);assert.match(v.message,/STUDENT_ROSTER_NOT_ALLOWED/);
+});
+
+test('6.5: editor name from Netlify is recorded as the saver',()=>{
+ const {call}=mockApp();
+ const r=call({action:'save',token:'A'.repeat(32),editor:'김남훈',baseVersion:0,data:sample});
+ assert.equal(r.actor,'김남훈');
+ assert.equal(call({action:'head',token:'A'.repeat(32)}).head.actor,'김남훈');
+});
+test('6.5: old autosave revisions are pruned and latest still reads correctly',()=>{
+ const {call,sheets}=mockApp();
+ let v=0;
+ for(let i=0;i<80;i++){
+  const r=call({action:'save',token:'A'.repeat(32),baseVersion:v,data:{...sample,workspaces:{2027:{...sample.workspaces[2027],schoolQuota:i}}}});
+  assert.equal(r.ok,true); v=r.version;
+ }
+ const payload=sheets.get('CG_Payload');
+ const revs=payload.rows.slice(1).map(r=>Number(r[0]));
+ assert.ok(Math.min(...revs)>=80-40-20, 'old rows pruned: min='+Math.min(...revs));
+ assert.ok(payload.rows.length-1<=60);
+ const read=call({action:'read',token:'B'.repeat(32)});
+ assert.equal(read.head.revision,80);
+ assert.equal(read.data.workspaces[2027].schoolQuota,79);
 });

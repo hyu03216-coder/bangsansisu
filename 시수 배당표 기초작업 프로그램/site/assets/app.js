@@ -5,7 +5,7 @@ const MAJORS = [
   {id:'국어'},{id:'수학'},{id:'영어'},{id:'역사'},
   {id:'지리',group:'사회'},{id:'일반사회',group:'사회'},{id:'윤리',group:'사회'},{id:'사회(통합)',group:'사회'},
   {id:'물리',group:'과학'},{id:'화학',group:'과학'},{id:'생명과학',group:'과학'},{id:'지구과학',group:'과학'},{id:'과학(통합)',group:'과학'},
-  {id:'체육'},{id:'음악'},{id:'미술'},{id:'일본어'},{id:'중국어'},{id:'가정'},{id:'정보'},{id:'보건'},{id:'진로'},{id:'교양'},{id:'온라인'},{id:'미정'}
+  {id:'체육'},{id:'음악'},{id:'미술'},{id:'일본어'},{id:'중국어'},{id:'가정'},{id:'정보'},{id:'보건'},{id:'진로'},{id:'교양'},{id:'온라인'},{id:'전공없음'},{id:'미정'}
 ];
 const MAJOR_IDS = MAJORS.map(m=>m.id);
 const GROUPS = {'사회':['지리','일반사회','윤리','사회(통합)'],'과학':['물리','화학','생명과학','지구과학','과학(통합)']};
@@ -14,11 +14,16 @@ const groupOf = id => (MAJORS.find(m=>m.id===id)||{}).group||null;
 const SHARED = ['사회(통합)','과학(통합)','온라인'];
 const ONLINE_ITEM_ID='cg-online'; // 화면상 '창체 및 교과외'의 자동 산출 항목
 const displayMajors = () => usedMajors().filter(m=>m!=='온라인');
+// 6.5: '전공없음' = 정원 계산에서 빠지고, 마지막에 교사별 시수를 맞출 때 아무 교사에게나 배정하는 과목
+const NOMAJOR='전공없음';
+const MAJOR_LABEL={'온라인':'공동배분','전공없음':'전공없음 (정원 제외)','미정':'미정 (확인 필요)'};
+const majorLabel = m => MAJOR_LABEL[m]||m;
+const majorOptions = cur => MAJOR_IDS.filter(m=>m!=='온라인'||cur==='온라인').map(m=>`<option value="${m}" ${m===cur?'selected':''}>${majorLabel(m)}</option>`).join('');
 const isShared = m => SHARED.includes(m);
-const TEACHER_MAJORS = MAJORS.map(m=>m.id).filter(m=>!SHARED.includes(m) && m!=='미정');
+const TEACHER_MAJORS = MAJORS.map(m=>m.id).filter(m=>!SHARED.includes(m) && m!=='미정' && m!=='전공없음');
 
 function poolMajors(majors){
-  if (majors.includes('온라인')) return TEACHER_MAJORS; // '온라인' 전공 과목은 모든 전공 교사가 제약 없이 담당 가능
+  if (majors.includes('온라인') || majors.includes('전공없음')) return TEACHER_MAJORS; // '온라인' 전공 과목은 모든 전공 교사가 제약 없이 담당 가능
   const s=new Set();
   majors.forEach(m=>{ s.add(m); const g=groupOf(m); if(g) GROUPS[g].forEach(x=>s.add(x)); });
   return [...s].filter(m=>!isShared(m));
@@ -42,12 +47,12 @@ const NAME_MAJOR = {};
  ['보건','공중보건 보건'],
  ['진로','진로'],
  ['교양','진로·학업설계 진로∙학업설계 진로학업설계 진로와직업 인간과심리 논리와사고 환경과생태'],
- ['온라인','창의공학설계 언어생활과한자']
+ ['전공없음','창의공학설계 언어생활과한자']
 ].forEach(([m,list])=>list.split(' ').forEach(n=>NAME_MAJOR[n]=m));
 
 function guessMajor(name, group, grade){
   const k = norm(name);
-  if (k==='창의공학설계' || k==='언어생활과한자') return '온라인';
+  if (k==='창의공학설계' || k==='언어생활과한자') return '전공없음';
   if (grade===3 && k.includes('진로')) return '교양';
   if (grade===1 && k==='진로') return '진로';
   if (NAME_MAJOR[k]) return NAME_MAJOR[k];
@@ -57,13 +62,13 @@ function guessMajor(name, group, grade){
   if (g.startsWith('영어')) return '영어';
   if (g.startsWith('체육')) return '체육';
   if (g.startsWith('예술')) return k.includes('음악')?'음악':'미술';
-  if (g.startsWith('제2외국어')) return k.includes('일본')?'일본어':k.includes('중국')?'중국어':'온라인';
+  if (g.startsWith('제2외국어')) return k.includes('일본')?'일본어':k.includes('중국')?'중국어':'전공없음';
   if (g.startsWith('기술')) return '정보';
   if (g.startsWith('교양')) return grade===1 && k==='진로' ? '진로' : '교양';
   if (g.startsWith('진로')) return grade===3 ? '교양' : '진로';
   if (g.startsWith('사회')) return '일반사회';
   if (g.startsWith('과학')) return '과학(통합)';
-  return '온라인';
+  return '전공없음';
 }
 
 const DEFAULT_CHANG = [
@@ -88,7 +93,7 @@ const MAX_HISTORY = 60;
 
 /* 과목·분반 탭은 상단 단일 버튼(matrixGrade, matrixSem)으로 좌측 검증표와 우측 과목 목록을 동시에 제어 */
 const UI = {
-  tab:'years', // 학년도 관리 홈으로 시작
+  tab:'year', // 6.5: 1단계 '학년도 선택'으로 시작
   reviewGrade:3, reviewFilter:'changed',
   sem:1,
   sumMode:'single', // 'single', 'both', 'zoom'
@@ -176,8 +181,9 @@ function ensureSpecialSubjects(){
   S.subjects.forEach(s=>{
     const k = norm(s.name);
     if (k==='창의공학설계' || k==='언어생활과한자' || s.major==='미정'){
-      if (k==='창의공학설계' || k==='언어생활과한자') s.major = '온라인';
+      if (k==='창의공학설계' || k==='언어생활과한자') s.major = '전공없음';
     }
+    if (s.major==='온라인') s.major = '전공없음'; // 6.5: 공동배분(온라인)은 전공없음으로 통합
     if (s.grade===3 && (k.includes('진로') || norm(s.group).includes('교양') || s.major==='진로')){
       s.major = '교양';
     }
@@ -327,7 +333,7 @@ function majorHours(major, sem){
    한 번 합산한다. 전공별 배정 수치는 별도로 집계하므로 중복 합산하지 않는다.
    온라인·통합(전담 정원 없는) 교과는 실제 전공별로 배분한 뒤 전공별 필요정원에 반영. */
 function cgOnlineNeed(sem){return majorHours('온라인',sem);}
-function cgExtraItems(){return [{id:ONLINE_ITEM_ID,name:'온라인',need1:cgOnlineNeed(1),need2:cgOnlineNeed(2),computed:true},...S.chang.items.filter(it=>norm(it.name)!=='진로'&&norm(it.name)!=='온라인')];}
+function cgExtraItems(){const on1=cgOnlineNeed(1),on2=cgOnlineNeed(2);return [...(on1||on2?[{id:ONLINE_ITEM_ID,name:'공동배분',need1:on1,need2:on2,computed:true}]:[]),...S.chang.items.filter(it=>norm(it.name)!=='진로'&&norm(it.name)!=='온라인')];}
 function cgItemAllocated(item,major,sem){
   return item.id===ONLINE_ITEM_ID?cgSharedAllocated('온라인',major,sem):num((((S.chang.alloc||{})[sem]||{})[major]||{})[item.id]);
 }
@@ -354,7 +360,7 @@ function cgShareSummary(sem){
   return {target,assigned,gap:target-assigned};
 }
 function cgEffectiveHours(major,sem){
-  if(isShared(major)) return 0; // 온라인·통합은 담당 전공으로만 정원 계산
+  if(isShared(major) || major===NOMAJOR) return 0; // 온라인·통합은 담당 전공으로만 정원 계산, 전공없음은 정원 계산 제외
   const st=majorStats(major,sem);
   return st.total + cgSharedTarget(major,sem) - st.tutor;
 }
@@ -368,7 +374,7 @@ function cgQuotaInfo(){
   return {quota:null,source:entered.length ? `전공별 정원 ${entered.length}/${majors.length}개 입력`:'교사 정원 미입력',entered:entered.length,total:majors.length};
 }
 function cgBreakdown(sem){
-  const curriculum=displayMajors().reduce((t,m)=>t+majorHours(m,sem),0); // 온라인 개설시수는 창체·교과외 열로 이동
+  const curriculum=displayMajors().filter(m=>m!==NOMAJOR).reduce((t,m)=>t+majorHours(m,sem),0); // 온라인 개설시수는 창체·교과외 열로 이동
   const extra=cgChangNeed(sem);
   const tutor=usedMajors().reduce((t,m)=>t+num(cap(m)['tutor'+sem]),0);
   const total=curriculum+extra-tutor;
@@ -394,7 +400,7 @@ function cgNeededHours(hours){
   return avg!=null&&avg>0?hours/avg:null;
 }
 function cgNeededMajor(major,sem){
-  if(isShared(major))return null;
+  if(isShared(major)||major===NOMAJOR)return null;
   const h=sem===1||sem===2?cgEffectiveHours(major,sem):(cgEffectiveHours(major,1)+cgEffectiveHours(major,2))/2;
   return cgNeededHours(h);
 }
@@ -412,14 +418,14 @@ function majorGradeHours(major, sem, grade){
   return S.subjects.filter(s=>s.major===major && s.sem===sem && s.grade===grade).reduce((t,s)=>t+hoursOf(s),0);
 }
 function changOf(major, sem){
-  if (isShared(major)) return 0;
+  if (isShared(major) || major===NOMAJOR) return 0;
   const a = (S.chang.alloc[sem]||{})[major]||{};
   return cgExtraItems().reduce((t,it)=>t+cgItemAllocated(it,major,sem),0);
 }
 const cap = m => S.capacity[m]||{};
 function majorStats(major, sem){
   const subj = majorHours(major,sem), ch = changOf(major,sem), tutor = num(cap(major)['tutor'+sem]);
-  const quota = isShared(major) ? 0 : num(cap(major).quota);
+  const quota = (isShared(major)||major===NOMAJOR) ? 0 : num(cap(major).quota);
   return {subj, ch, tutor, total:subj+ch, quota, avg: quota? (subj+ch-tutor)/quota : null, avgSubj: quota?(subj-tutor)/quota:null};
 }
 function sumStats(list, sem){
@@ -430,7 +436,7 @@ function sumStats(list, sem){
 }
 function usedMajors(){
   const used = new Set(S.subjects.map(s=>s.major));
-  return MAJOR_IDS.filter(m=>m!=='미정' || used.has('미정'));
+  return MAJOR_IDS.filter(m=>(m!=='미정'&&m!==NOMAJOR&&m!=='온라인') || used.has(m));
 }
 function teacherSubjHours(tid, sem){
   let h=0; S.subjects.forEach(s=>{ if(s.sem!==sem||!active(s)||s.major==='온라인')return; s.sections.forEach(x=>{ if(x.teacher===tid) h+=num(s.credits); }); });
@@ -472,7 +478,7 @@ function recordHistory(){
 }
 
 function doUndo(){
-  if(S.workspaceStatus==='confirmed'){toast('확정본입니다. 먼저 작업 모드로 전환하세요.');return;}
+  if(S.workspaceStatus==='confirmed'){toast('확정된 학년도예요. 7단계에서 잠금을 풀어야 고칠 수 있어요.');return;}
   if (!UNDO_STACK.length){ toast('실행취소할 이전 내역이 없어요'); return; }
   REDO_STACK.push(JSON.stringify(S));
   const prev = UNDO_STACK.pop();
@@ -485,7 +491,7 @@ function doUndo(){
 }
 
 function doRedo(){
-  if(S.workspaceStatus==='confirmed'){toast('확정본입니다. 먼저 작업 모드로 전환하세요.');return;}
+  if(S.workspaceStatus==='confirmed'){toast('확정된 학년도예요. 7단계에서 잠금을 풀어야 고칠 수 있어요.');return;}
   if (!REDO_STACK.length){ toast('다시 실행할 내역이 없어요'); return; }
   UNDO_STACK.push(JSON.stringify(S));
   const next = REDO_STACK.pop();
@@ -497,18 +503,18 @@ function doRedo(){
   toast('다시실행 완료 (Ctrl+Y)');
 }
 
-function setSaveState(t){ document.getElementById('saveState').textContent=t; }
+function setSaveState(t){ if(window.CGCloud&&window.CGCloud.active()){ window.CGCloud.paint(); return; } document.getElementById('saveState').textContent=t; }
 function persist(pushHist=true){
   if (pushHist) recordHistory();
   S.savedAt = Date.now();
-  if(!cgWriteWorkspace()){ setSaveState('저장 오류 · 백업 필요'); return; }
+  if(!cgWriteWorkspace()){ setSaveState('⚠ 저장 실패'); return; }
   if(window.CGCloud)window.CGCloud.markDirty();
   clearTimeout(saveTimer);
   saveTimer = setTimeout(cloudSave, 900);
-  setSaveState('이 브라우저에 저장됨');
+  setSaveState('✓ 저장됨');
 }
 async function cloudSave(){
-  if (!dbRef){ setSaveState('브라우저 자동 저장됨 · 클라우드 저장은 별도'); return; }
+  if (!dbRef){ setSaveState('✓ 저장됨'); return; }
   if (saving){ pendingSave=true; return; }
   saving=true;
   try{
@@ -566,7 +572,7 @@ function migrate(st){
     S.chang.items=S.chang.items.filter(it=>!ids.has(it.id));
   }
   // 이전 파일(JSON/자동 저장)의 전공 '공동'을 '온라인'으로 변환합니다.
-  (S.subjects||[]).forEach(s=>{ if(s.major==='공동')s.major='온라인'; });
+  (S.subjects||[]).forEach(s=>{ if(s.major==='공동'||s.major==='온라인')s.major='전공없음'; }); // 6.5: 공동배분·온라인 → 전공없음
   (S.teachers||[]).forEach(t=>{ if(t.major==='공동')t.major='온라인'; });
   if(S.capacity['공동']){ S.capacity['온라인']={...S.capacity['공동'],...(S.capacity['온라인']||{})};delete S.capacity['공동']; }
   [1,2].forEach(sem=>{const m=(S.chang.alloc||{})[sem]||{};if(m['공동']){m['온라인']={...m['공동'],...(m['온라인']||{})};delete m['공동'];}});
@@ -730,14 +736,14 @@ function cgStageAssign(sum,grade,file){
   if(v.timeClashes?.length)fatal.push(`학생별 시간 중복 ${v.timeClashes.length}${v.timeClashes.length>=30?'건 이상':'건'}: ${v.timeClashes.slice(0,4).join(' · ')}`);
   if(v.inconsistentSections?.length)warnings.push('일부 분반 인원과 학급별 인원이 일치하지 않습니다: '+v.inconsistentSections.slice(0,4).join(', '));
   if(!sum.hasClass)warnings.push('학급 정보가 없어 일반·과중 분반 인원을 정확히 나눌 수 없습니다.');
-  if(!S.assignMeta?.[grade])warnings.push('이 학년은 이전 리로스쿨 배정 자료가 없습니다. 신규 등록으로 처리합니다.');
+  if(!S.assignMeta?.[grade])warnings.push('이 학년은 처음 올리는 배정내역이에요.');
   else if(num(S.assignMeta[grade].students)!==sum.students)warnings.push(`학생 수가 기존 ${S.assignMeta[grade].students}명에서 ${sum.students}명으로 달라졌습니다. 전체 자료인지 확인하세요.`);
   const original=S;let simulated;
   try{S=cgClone(original);applyAssign(sum,grade,file.name);simulated=S;}
   finally{S=original;}
   const cmp=cgCompareStates(original,simulated,grade);
   if(cmp.rows.some(r=>r.unknownCredits))warnings.push('편제표에 없는 과목이 있습니다. 해당 과목은 임시 3학점이 적용되므로 시수 확정 전에 학점을 확인하세요.');
-  if(cmp.summary.balanceWarnings)warnings.push(`분반 인원 차이가 3명을 넘는 과목이 ${cmp.summary.balanceWarnings}개 있습니다. (변경 승인을 막지는 않습니다.)`);
+  if(cmp.summary.balanceWarnings)warnings.push(`분반 인원 차이가 3명을 넘는 과목이 ${cmp.summary.balanceWarnings}개 있어요. 반영은 할 수 있어요.`);
   const oldTeachers=new Set();
   (original.subjects||[]).filter(s=>s.grade===grade).forEach(s=>{
     const upd=simulated.subjects.find(x=>x.grade===grade&&x.sem===s.sem&&norm(x.name)===norm(s.name));
@@ -753,12 +759,12 @@ function cgStageAssign(sum,grade,file){
 function cgApproveAssign(){
   const p=cgPendingAssign;
   if(!p){toast('먼저 변경할 리로스쿨 엑셀을 선택해 주세요');return;}
-  if(S.year!==p.year||S.workspaceStatus==='confirmed'){toast('학년도 또는 확정본 상태가 변경되었습니다. 파일을 다시 검토해 주세요');cgDiscardReview();return;}
+  if(S.year!==p.year||S.workspaceStatus==='confirmed'){toast('그사이 학년도나 확정 상태가 바뀌었어요. 파일을 다시 올려 주세요');cgDiscardReview();return;}
   if(p.fatal.length){toast('오류를 해결해야 변경안을 승인할 수 있습니다');return;}
   if(cgReviewBaseSignature(p.grade)!==p.baseSignature){toast('검토 이후 해당 학년의 배정 또는 학급 설정이 변경되었습니다. 파일을 다시 비교하세요.');return;}
   const before=cgClone(S),grade=p.grade,cmp=p.comparison;
   // 적용 직전 시점을 보관한다. 실패하면 상태를 되돌린다.
-  if(!cgCheckpoint(`리로스쿨 ${grade}학년 업로드 전 · ${p.fileName}`,'working')){toast('변경 전 작업본 저장에 실패하여 적용을 중지했습니다.');return;}
+  if(!cgCheckpoint(`리로스쿨 ${grade}학년 업로드 전 · ${p.fileName}`,'working')){toast('바꾸기 전 상태를 저장하지 못해서 반영을 멈췄어요.');return;}
   try{
     applyAssign(p.sum,grade,p.fileName);
     S.assignHistory=Array.isArray(S.assignHistory)?S.assignHistory:[];
@@ -766,22 +772,22 @@ function cgApproveAssign(){
       changed:cmp.summary.changed,new:cmp.summary.new,removed:cmp.summary.removed,
       beforeHours:cmp.summary.bySem,reviewed:true});
     S.assignHistory=S.assignHistory.slice(0,15);
-    if(!cgWriteWorkspace())throw Error('브라우저 저장 용량 부족: 적용 상태를 저장할 수 없습니다.');
+    if(!cgWriteWorkspace())throw Error('저장 공간이 부족해요.');
     lastSnapshotStr=JSON.stringify(S);UNDO_STACK.length=0;REDO_STACK.length=0;
     cgPendingAssign=null;
     UI.matrixGrade=grade;UI.tab='review';render();
-    toast(`${grade}학년 변경 승인 완료 · 수업시수를 다시 계산했습니다`);
+    toast(`${grade}학년 배정내역을 반영하고 시수를 다시 계산했어요`);
   }catch(e){S=migrate(before);cgWriteWorkspace();toast('적용 취소: '+e.message);render();}
 }
 function vReview(){
   const p=cgPendingAssign;
   const gh=[2,3].map(g=>{const m=S.assignMeta?.[g];return `<div class="cg-review-stat"><span>${g}학년 · ${S.year-g+1} 입학생</span><strong>${m?m.students+'명':'미등록'}</strong><small>${m?esc(m.file||'배정내역 있음'):'리로스쿨 파일을 등록해 주세요'}</small></div>`;}).join('');
   if(!p){const history=(S.assignHistory||[]).filter(x=>x.year===S.year).map(x=>`<tr><td>${x.grade}학년</td><td>${esc(x.file)}</td><td>${new Date(x.at).toLocaleString('ko-KR')}</td><td>${x.changed}과목 변경 · ${x.new}과목 추가</td></tr>`).join('');
-    return `<div class="cg-review"><div class="cg-review-hero"><div><h2>리로스쿨 반편성 변경 검토</h2><p class="cg-review-lead">파일 업로드 → 자동 대조 → 검증 → 승인 → 저장. 승인하기 전까지는 기존 배정이 유지됩니다.</p></div><span class="cg-review-tag blue">${S.year}학년도</span></div>
-      <div class="cg-review-stats">${gh}</div><section class="panel"><div class="cg-review-drop"><div style="font-size:28px">📂</div><h3>새 리로스쿨 반편성 엑셀을 선택하세요</h3><p>원본 파일은 브라우저 안에서 읽으며 학생 이름·학번은 저장하지 않습니다.</p><button class="btn pri lg" data-act="cgReviewUpload" ${S.workspaceStatus==='confirmed'?'disabled':''}>배정내역 비교하기 (.xlsx)</button></div><p class="cg-small-note">학년은 학번으로 자동 판별합니다. 파일 내부의 학생별 타임 중복은 검사합니다. 이전 업로드 파일과 학생별 선택과목을 1:1로 대조하는 기능은 학생 식별정보를 저장하지 않으므로 지원하지 않습니다.</p></section>
-      <section class="panel"><h2>승인 이력</h2><div class="tablewrap"><table class="cg-board-table"><thead><tr><th>학년</th><th>적용 파일</th><th>적용 시각</th><th>변경 요약</th></tr></thead><tbody>${history||'<tr><td colspan="4" class="muted">이 학년도에 승인된 변경 내역이 없습니다.</td></tr>'}</tbody></table></div></section></div>`;}
+    return `<div class="cg-review"><div class="cg-review-hero"><div><h2>리로스쿨 배정내역 올리기</h2><p class="cg-review-lead">파일을 올리면 지금 들어 있는 분반과 비교해서 보여 줘요. [이대로 반영하기]를 누르기 전에는 아무것도 바뀌지 않아요.</p></div><span class="cg-review-tag blue">${S.year}학년도</span></div>
+      <div class="cg-review-stats">${gh}</div><section class="panel"><div class="cg-review-drop"><div style="font-size:28px">📂</div><h3>리로스쿨 배정내역 엑셀을 고르세요</h3><p>학생 이름·학번은 저장하지 않고, 과목별 분반 수와 인원만 가져와요.</p><button class="btn pri lg" data-act="cgReviewUpload" ${S.workspaceStatus==='confirmed'?'disabled':''}>배정내역 엑셀 고르기</button></div><p class="cg-small-note">학번을 보고 2학년·3학년을 알아서 구분해요. 한 학생이 같은 타임에 두 과목이 잡혀 있으면 알려 줘요.</p></section>
+      <section class="panel"><h2>반영한 기록</h2><div class="tablewrap"><table class="cg-board-table"><thead><tr><th>학년</th><th>파일</th><th>반영한 때</th><th>바뀐 내용</th></tr></thead><tbody>${history||'<tr><td colspan="4" class="muted">아직 반영한 배정내역이 없어요.</td></tr>'}</tbody></table></div></section></div>`;}
   const c=p.comparison,st=c.summary,br=st.bySem;
-  const errs=p.fatal.length?`<div class="cg-review-status bad"><strong>적용 차단 · ${p.fatal.length}개 오류</strong><ul>${p.fatal.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div>`:`<div class="cg-review-status ok"><strong>기본 검증 통과</strong> · 학생별 타임 충돌 및 파일 형식 오류가 발견되지 않았습니다. 분반·인원·시수 변경을 확인한 뒤 승인해 주세요.</div>`;
+  const errs=p.fatal.length?`<div class="cg-review-status bad"><strong>적용 차단 · ${p.fatal.length}개 오류</strong><ul>${p.fatal.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div>`:`<div class="cg-review-status ok"><strong>문제 없음</strong> · 같은 타임에 겹친 학생이나 파일 오류가 없어요. 바뀌는 내용을 보고 반영해 주세요.</div>`;
   const warns=p.warnings.length?`<div class="cg-review-status warn"><strong>확인 사항 ${p.warnings.length}건</strong><ul>${p.warnings.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div>`:'';
   const rows=c.rows.filter(r=>UI.reviewFilter==='all'||(UI.reviewFilter==='changed'&&r.changed)||(UI.reviewFilter==='balance'&&r.balance>3)||(UI.reviewFilter==='hours'&&r.oldHours!==r.newHours));
   const table=rows.map(r=>`<tr class="${r.changed?'change':''}"><td><span class="cg-review-tag ${r.status==='new'?'blue':r.status==='removed'?'red':r.changed?'orange':''}">${r.status==='new'?'신규':r.status==='removed'?'폐강':r.changed?'변경':'동일'}</span> ${r.sem}학기</td><td><strong>${esc(r.name)}</strong><span class="subline" title="${esc(r.newLabels)}">${esc(r.newLabels||'개설 분반 없음')}</span></td>
@@ -789,15 +795,15 @@ function vReview(){
     <td>${r.oldN}</td><td>${r.newN}</td><td>${r.oldHours}</td><td>${r.newHours}</td><td class="${r.oldHours!==r.newHours?'delta':''}">${r.newHours-r.oldHours>0?'+':''}${r.newHours-r.oldHours}</td>
     <td class="${r.balance>3?'bad':''}">${r.newCount<2?'—':r.balance+'명'}</td></tr>`).join('');
   const bigNum=st.changed+st.new+st.removed;
-  return `<div class="cg-review"><div class="cg-review-hero"><div><h2>${p.grade}학년 반편성 변경 검토</h2><p class="cg-review-lead">${esc(p.fileName)} · ${S.year}학년도 / ${p.sum.students}명 · 총 ${p.sum.subjects.length}개 과목</p></div><span class="cg-review-tag ${p.fatal.length?'red':'blue'}">${p.fatal.length?'오류 확인 필요':'승인 대기'}</span></div>
-    <div class="cg-review-stats"><div class="cg-review-stat emph"><span>변경 또는 추가·폐강 과목</span><strong>${bigNum}</strong><small>동일 과목 제외</small></div>
+  return `<div class="cg-review"><div class="cg-review-hero"><div><h2>${p.grade}학년 배정내역 확인</h2><p class="cg-review-lead">${esc(p.fileName)} · ${S.year}학년도 / ${p.sum.students}명 · 총 ${p.sum.subjects.length}개 과목</p></div><span class="cg-review-tag ${p.fatal.length?'red':'blue'}">${p.fatal.length?'오류 확인 필요':'확인 중'}</span></div>
+    <div class="cg-review-stats"><div class="cg-review-stat emph"><span>바뀌는 과목</span><strong>${bigNum}</strong><small>새로 생기거나 없어지는 과목 포함</small></div>
     <div class="cg-review-stat"><span>1학기 분반 수</span><strong>${br[1].oldClasses} → ${br[1].newClasses}</strong><small>총시수 ${br[1].oldHours} → ${br[1].newHours}</small></div>
     <div class="cg-review-stat"><span>2학기 분반 수</span><strong>${br[2].oldClasses} → ${br[2].newClasses}</strong><small>총시수 ${br[2].oldHours} → ${br[2].newHours}</small></div>
-    <div class="cg-review-stat"><span>인원 편차 3명 초과</span><strong>${st.balanceWarnings}</strong><small>분반이 2개 이상인 과목 기준</small></div></div>
+    <div class="cg-review-stat"><span>분반 인원 차이 3명 넘는 과목</span><strong>${st.balanceWarnings}</strong><small>분반이 2개 이상인 과목만</small></div></div>
     ${errs}${warns}
-    <section class="panel"><div class="cg-review-toolbar"><h2 style="margin:0">과목별 변경 상세</h2><span class="seg">${[['changed','변경 항목'],['all','전체'],['hours','시수 변경'],['balance','인원 불균형']].map(([k,label])=>`<button data-act="cgReviewFilter" data-filter="${k}" class="${UI.reviewFilter===k?'on':''}">${label}</button>`).join('')}</span></div>
-    <div class="tablewrap"><table class="cg-review-table"><thead><tr><th>학기/상태</th><th>과목 · 신규 분반별 인원</th><th>이전 반</th><th>신규 반</th><th>반 증감</th><th>이전 인원</th><th>신규 인원</th><th>이전 시수</th><th>신규 시수</th><th>시수 증감</th><th>최대 인원 차이</th></tr></thead><tbody>${table||'<tr><td colspan="11" style="text-align:center;color:#64748b;padding:20px">이 조건에 해당하는 변경이 없습니다.</td></tr>'}</tbody></table></div><p class="cg-small-note">고정·지정과목 시수는 그대로 유지되며, 이 표는 리로스쿨 배정 파일과 연동되는 과목만 비교합니다. 공동 및 온라인 시수 집계는 승인 후 기존 계산 규칙에 따라 갱신됩니다.</p></section>
-    <div class="cg-review-actions"><button class="btn" data-act="cgReviewCancel">변경안 취소</button><button class="btn" data-act="cgReviewUpload">다른 엑셀로 다시 검토</button><button class="btn pri lg" data-act="cgReviewApprove" ${p.fatal.length||S.workspaceStatus==='confirmed'?'disabled':''}>검증 결과 확인 후 변경 승인</button></div></div>`;
+    <section class="panel"><div class="cg-review-toolbar"><h2 style="margin:0">과목별로 달라지는 점</h2><span class="seg">${[['changed','바뀌는 과목'],['all','전체'],['hours','시수가 바뀌는 과목'],['balance','인원 차이 큰 과목']].map(([k,label])=>`<button data-act="cgReviewFilter" data-filter="${k}" class="${UI.reviewFilter===k?'on':''}">${label}</button>`).join('')}</span></div>
+    <div class="tablewrap"><table class="cg-review-table"><thead><tr><th>학기/상태</th><th>과목 · 신규 분반별 인원</th><th>이전 반</th><th>신규 반</th><th>반 증감</th><th>이전 인원</th><th>신규 인원</th><th>이전 시수</th><th>신규 시수</th><th>시수 증감</th><th>최대 인원 차이</th></tr></thead><tbody>${table||'<tr><td colspan="11" style="text-align:center;color:#64748b;padding:20px">이 조건에 해당하는 변경이 없습니다.</td></tr>'}</tbody></table></div><p class="cg-small-note">학교 지정 과목은 그대로예요. 이 표는 배정내역에 들어 있는 선택과목만 비교해요.</p></section>
+    <div class="cg-review-actions"><button class="btn" data-act="cgReviewCancel">취소</button><button class="btn" data-act="cgReviewUpload">다른 파일 고르기</button><button class="btn pri lg" data-act="cgReviewApprove" ${p.fatal.length||S.workspaceStatus==='confirmed'?'disabled':''}>이대로 반영하기</button></div></div>`;
 }
 
 function parsePyeonjeWB(wb){
@@ -848,16 +854,20 @@ const TABS = [
 ];
 
 function renderTabs(){
-  document.getElementById('tabs').innerHTML = TABS.map(([k,l])=>`<button data-tab="${k}" class="${UI.tab===k?'on':''}">${l}</button>`).join('');
-  document.getElementById('yearLabel').textContent = S.year+'학년도' + (S.workspaceStatus==='confirmed'?' · 확정본':'');
+  if (typeof renderStepNav==='function') renderStepNav(); // 6.5: 단계별 메뉴
+  else document.getElementById('tabs').innerHTML = TABS.map(([k,l])=>`<button data-tab="${k}" class="${UI.tab===k?'on':''}">${l}</button>`).join('');
+  document.getElementById('yearLabel').textContent = S.year+'학년도' + (S.workspaceStatus==='confirmed'?' · 확정됨':'');
   updateUndoUI();
 }
 function render(){
   renderTabs();
   const el = document.getElementById('main');
-  const f = {years:vYears, review:vReview, setup:vSetup, subjects:vSubjects, summary:vSummary, compare:vCompare, chang:vChang, teachers:vTeachers, assign:vAssign}[UI.tab];
+  const views = {years:vYears, review:vReview, setup:vSetup, subjects:vSubjects, summary:vSummary, compare:vCompare, chang:vChang, teachers:vTeachers, assign:vAssign};
+  if (typeof vStepYear==='function') Object.assign(views,{year:vStepYear, pyeonje:vStepPyeonje, check:vStepCheck, finish:vStepFinish, setup:vStepSettings, years:vStepRecords});
+  if (!views[UI.tab]) UI.tab = views.year ? 'year' : 'years';
+  const f0 = views[UI.tab], f = typeof stepFrame==='function' ? ()=>stepFrame(f0()) : f0;
   const y = window.scrollY;
-  el.innerHTML = (S.workspaceStatus==='confirmed'&&UI.tab!=='years'?'<div class="cg-readonly">🔒 확정본 · 열람 전용입니다. 학년도 관리 탭에서 작업 모드로 전환할 수 있습니다.</div>':'')+f();
+  el.innerHTML = (S.workspaceStatus==='confirmed'&&!['years','year','finish'].includes(UI.tab)?'<div class="cg-readonly">🔒 확정된 학년도라 볼 수만 있어요. 고치려면 7단계 [내보내기·확정]에서 잠금을 풀어 주세요.</div>':'')+f();
   window.scrollTo(0,y);
 }
 function semSeg(key){ return `<span class="seg">${[1,2].map(s=>`<button data-semset="${key}" data-v="${s}" class="${UI[key]===s?'on':''}">${s}학기</button>`).join('')}</span>`; }
@@ -913,23 +923,23 @@ function cgInitializeStore(){
   S.workspaceStatus='working';
   CG_INDEX={schema:1,activeYear:S.year,years:[S.year],updatedAt:new Date().toISOString()};
   [1,2,3].forEach(g=>cgCohortFromState(g));
-  if(!cgWriteWorkspace())setTimeout(()=>toast('브라우저 저장 공간이 부족할 수 있어요. JSON 백업을 내려받으세요.'),600);
+  if(!cgWriteWorkspace())setTimeout(()=>toast('저장 공간이 부족할 수 있어요. ⚙ 설정에서 작업 파일로 저장해 두세요.'),600);
 }
 function cgYearInfo(y){return cgRead(cgDataKey(y),null);}
 function cgLoadYear(y){
-  if(y===S.year){UI.tab='years';render();return;}
+  if(y===S.year){UI.tab='year';render();return;}
   const data=cgYearInfo(y);if(!data){toast('해당 학년도 저장 자료를 찾지 못했습니다');return;}
-  if(!cgWriteWorkspace()){toast('현재 작업 저장에 실패했습니다. JSON 백업 후 다시 시도하세요.');return;}
+  if(!cgWriteWorkspace()){toast('지금 작업을 저장하지 못했어요. ⚙ 설정에서 작업 파일로 저장한 뒤 다시 해 보세요.');return;}
   cgPendingAssign=null;S=migrate(data);CG_INDEX.activeYear=S.year;cgWrite(CG_INDEX_KEY,CG_INDEX);
   lastSnapshotStr=JSON.stringify(S);UNDO_STACK.length=0;REDO_STACK.length=0;
-  UI.tab='years';UI.matrixGrade=2;UI.matrixSem=1;if(window.CGCloud)window.CGCloud.markDirty();render();toast(S.year+'학년도로 전환했습니다');
+  UI.tab='year';UI.matrixGrade=2;UI.matrixSem=1;if(window.CGCloud)window.CGCloud.markDirty();render();toast(S.year+'학년도로 전환했습니다');
 }
 function cgCreateYear(y){
   y=Number(y);
   if(!cgValidYear(y)){toast('2020~2100 사이의 학년도를 입력해 주세요');return;}
   if(CG_INDEX.years.includes(y)){cgLoadYear(y);return;}
   if(y!==S.year+1){toast('안전을 위해 현재 학년도 바로 다음 해만 생성할 수 있습니다');return;}
-  if(!cgWriteWorkspace()){toast('작업을 저장하지 못했습니다. 먼저 JSON 백업을 다운로드하세요.');return;}
+  if(!cgWriteWorkspace()){toast('지금 작업을 저장하지 못했어요. ⚙ 설정에서 작업 파일로 저장한 뒤 다시 해 보세요.');return;}
   const from=S;
   [1,2,3].forEach(g=>cgCohortFromState(g));
   const next=blankState();next.year=y;next.workspaceStatus='working';next.creationInfo={fromYear:from.year,at:new Date().toISOString()};
@@ -950,10 +960,10 @@ function cgCreateYear(y){
   });
   ensureSpecialSubjects();
   if(!cgWriteWorkspace()){
-    S=from;cgWriteWorkspace();toast('새 학년도 저장 공간이 부족합니다. 백업 후 다시 시도하세요.');return;
+    S=from;cgWriteWorkspace();toast('새 학년도를 저장할 공간이 부족해요. ⚙ 설정에서 작업 파일로 저장한 뒤 다시 해 보세요.');return;
   }
   lastSnapshotStr=JSON.stringify(S);UNDO_STACK.length=0;REDO_STACK.length=0;
-  UI.tab='years';if(window.CGCloud)window.CGCloud.markDirty();render();toast(`${y}학년도 생성 완료 · 새 입학생 편제표와 반편성 자료를 등록하세요`);
+  UI.tab='year';if(window.CGCloud)window.CGCloud.markDirty();render();toast(`${y}학년도 생성 완료 · 새 입학생 편제표와 반편성 자료를 등록하세요`);
 }
 function cgCheckpoints(y){return cgRead(cgSnapKey(y),[]);}
 function cgCheckpoint(label, status='working'){
@@ -962,42 +972,42 @@ function cgCheckpoint(label, status='working'){
   arr.unshift(entry);
   // 로컬 저장 공간 한도를 고려하여 학년도별 최대 4개만 보유. 장기 보관은 포트폴리오 JSON 백업 권장.
   const kept=arr.slice(0,4);
-  if(!cgWrite(cgSnapKey(S.year),kept)){toast('저장 공간이 부족해 작업본을 저장하지 못했습니다. 전체 백업을 내보내세요.');return false;}
-  toast('작업 시점을 저장했습니다');render();return true;
+  if(!cgWrite(cgSnapKey(S.year),kept)){toast('저장 공간이 부족해 중간 저장을 못 했어요. ⚙ 설정에서 작업 파일로 저장해 두세요.');return false;}
+  toast('지금 상태를 중간 저장했어요');render();return true;
 }
 function cgConfirmYear(){
   if(S.workspaceStatus==='confirmed'){toast('이미 확정된 학년도입니다');return;}
   if(!cgCheckpoint(`확정본 ${new Date().toLocaleString('ko-KR')}`,'confirmed'))return;
-  S.workspaceStatus='confirmed';cgWriteWorkspace();if(window.CGCloud)window.CGCloud.markDirty();render();toast('확정 완료 · 이 학년도 편집이 잠겼습니다');
+  S.workspaceStatus='confirmed';cgWriteWorkspace();if(window.CGCloud)window.CGCloud.markDirty();render();toast('확정했어요 · 이 학년도는 잠겼어요');
 }
-function cgReopenYear(){S.workspaceStatus='working';cgWriteWorkspace();if(window.CGCloud)window.CGCloud.markDirty();lastSnapshotStr=JSON.stringify(S);render();toast('작업 모드로 전환했습니다');}
+function cgReopenYear(){S.workspaceStatus='working';cgWriteWorkspace();if(window.CGCloud)window.CGCloud.markDirty();lastSnapshotStr=JSON.stringify(S);render();toast('잠금을 풀었어요. 다시 고칠 수 있어요');}
 function cgRestoreCheckpoint(id){
   const cp=cgCheckpoints(S.year).find(x=>x.id===id);if(!cp)return;
   const year=S.year;
   S=migrate(cgClone(cp.data));S.year=year;S.workspaceStatus='working';
   lastSnapshotStr=JSON.stringify(S);UNDO_STACK.length=0;REDO_STACK.length=0;
-  cgWriteWorkspace();if(window.CGCloud)window.CGCloud.markDirty();render();toast('선택한 시점으로 복원했습니다. 현재는 작업 모드입니다');
+  cgWriteWorkspace();if(window.CGCloud)window.CGCloud.markDirty();render();toast('그 시점으로 되돌렸어요');
 }
 function cgExportAll(){
-  if(!cgWriteWorkspace()){toast('현재 작업 저장에 실패했습니다. 개별 JSON 백업을 이용하세요.');return;}
+  if(!cgWriteWorkspace()){toast('지금 작업을 저장하지 못했어요.');return;}
   const workspaces={};CG_INDEX.years.forEach(y=>{const w=cgYearInfo(y);if(w)workspaces[y]=w;});
   const checkpoints={};CG_INDEX.years.forEach(y=>{checkpoints[y]=cgCheckpoints(y);});
   const portfolio={format:'cleargrid-portfolio-v1',exportedAt:new Date().toISOString(),activeYear:S.year,workspaces,cohorts:CG_COHORTS,checkpoints};
   saveFile(`ClearGrid_전체학년도백업_${S.year}_${stamp()}.json`,JSON.stringify(portfolio));
-  toast('전체 학년도 백업을 다운로드합니다');
+  toast('모든 학년도를 파일로 내려받아요');
 }
 function cgImportAll(file){
   const fr=new FileReader();fr.onload=()=>{
     try{
       const obj=JSON.parse(fr.result);
-      if(obj.format!=='cleargrid-portfolio-v1'||!obj.workspaces||typeof obj.workspaces!=='object')throw Error('ClearGrid 통합 백업 형식이 아닙니다');
+      if(obj.format!=='cleargrid-portfolio-v1'||!obj.workspaces||typeof obj.workspaces!=='object')throw Error('이 프로그램에서 만든 파일이 아니에요');
       const years=Object.keys(obj.workspaces).map(Number).filter(cgValidYear);
       if(!years.length)throw Error('유효한 학년도가 없습니다');
       for(const y of years){const w=obj.workspaces[y];if(!w||!Array.isArray(w.subjects)||Number(w.year)!==y)throw Error(`${y}학년도 데이터 오류`);}
-      openConfirm(`${years.join(', ')}학년도 파일을 불러올까요? 현재 브라우저에 저장된 학년도 데이터를 덮어쓸 수 있습니다. 반드시 먼저 전체 백업을 저장해 주세요.`,()=>{
+      openConfirm(`${years.join(', ')}학년도 자료를 불러올까요? 지금 들어 있는 같은 학년도 자료는 이 파일 내용으로 바뀌어요.`,()=>{
         const newIndex={schema:1,activeYear:years.includes(+obj.activeYear)?+obj.activeYear:years[0],years:years.sort((a,b)=>b-a),updatedAt:new Date().toISOString()};
         // 저장 용량을 사전 추정하여 대규모 자료 로드시 일부만 덮어쓰지 않게 한다.
-        const bytes=JSON.stringify(obj).length; if(bytes>4_000_000){toast('백업 데이터가 너무 큽니다. 브라우저 저장 한도를 초과할 수 있어요.');return;}
+        const bytes=JSON.stringify(obj).length; if(bytes>4_000_000){toast('파일이 너무 커서 불러올 수 없어요.');return;}
         const previous={};let failure=false;
         const keys=[CG_COHORT_KEY,CG_INDEX_KEY,...years.map(cgDataKey),...years.map(cgSnapKey)];
         keys.forEach(k=>previous[k]=window.CGStore.getRaw(k));
@@ -1006,11 +1016,11 @@ function cgImportAll(file){
           window.CGStore.setRaw(CG_COHORT_KEY,JSON.stringify(obj.cohorts||{}));
           window.CGStore.setRaw(CG_INDEX_KEY,JSON.stringify(newIndex));
         }catch(e){failure=true;keys.forEach(k=>{try{if(previous[k]==null)window.CGStore.removeRaw(k);else window.CGStore.setRaw(k,previous[k]);}catch(err){}});}
-        if(failure){toast('저장 용량 부족으로 복원하지 못했습니다');return;}
+        if(failure){toast('저장 공간이 부족해 불러오지 못했어요');return;}
         CG_INDEX=newIndex;CG_COHORTS=obj.cohorts||{};S=migrate(cgYearInfo(newIndex.activeYear));
-        lastSnapshotStr=JSON.stringify(S);UNDO_STACK.length=0;REDO_STACK.length=0;UI.tab='years';if(window.CGCloud)window.CGCloud.markDirty();render();toast('전체 학년도 백업을 불러왔습니다');
+        lastSnapshotStr=JSON.stringify(S);UNDO_STACK.length=0;REDO_STACK.length=0;UI.tab='year';if(window.CGCloud)window.CGCloud.markDirty();render();toast('학년도 자료를 불러왔어요');
       });
-    }catch(e){toast('백업 파일 오류: '+e.message);}
+    }catch(e){toast('파일을 읽지 못했어요: '+e.message);}
   };fr.readAsText(file);
 }
 function vYears(){
@@ -1219,8 +1229,8 @@ function vSubjects(){
      return `<span class="sec ${trk}" title="${esc(x.label)} · ${x.n==null?'':x.n+'명'}">${esc(x.label)}${x.n==null?'':` <span class="cnt">${x.n}</span>`}${detail}</span>`;
    }).join('');
    return `<tr class="${active(s)?'':'excl'}">
-      <td class="cg-course-cell cg-course-cell-sticky"><b>${esc(s.name)}</b>${s.online?' <span class="pill warn">온라인</span>':''}<span class="course-note">${s.major==='온라인'?'창체·교과외 (온라인)':esc(s.major)}</span></td>
-      <td>${s.major==='온라인'?'<span class="cg-mini-flag">공동 배분 · 전공 없음</span>':`<select data-sub="${s.id}" data-f="major" aria-label="${esc(s.name)} 전공">${MAJOR_IDS.filter(m=>m!=='온라인').map(m=>opt(m,s.major)).join('')}</select>`}</td>
+      <td class="cg-course-cell cg-course-cell-sticky"><b>${esc(s.name)}</b>${s.online?' <span class="pill warn">온라인학교</span>':''}<span class="course-note">${s.major==='온라인'?'창체·교과외 (온라인)':esc(s.major)}</span></td>
+      <td><select data-sub="${s.id}" data-f="major" aria-label="${esc(s.name)} 전공">${majorOptions(s.major)}</select></td>
       <td class="c"><span class="pill">${esc(s.kind)}${s.block?' '+esc(s.block):''}</span></td>
       <td class="c"><input type="number" class="w40" min="0" data-sub="${s.id}" data-f="credits" value="${s.credits}" aria-label="${esc(s.name)} 학점"></td>
       ${renderGSCountCells(s)}<td class="n strong">${hoursOf(s)||'—'}</td>
@@ -1230,7 +1240,7 @@ function vSubjects(){
     </tr>`;
  }).join('');
  return `<section class="panel">
-   <div class="cg-hero"><div><h2 style="margin:0">수강인원 검증 및 과목·분반 관리</h2><p class="cg-subtitle">교육과정의 수강인원과 분반 편성을 한 화면에서 확인합니다.</p></div>
+   <div class="cg-hero"><div><h2 style="margin:0">수강인원·분반 확인</h2><p class="cg-subtitle">학년·학기를 고르면 타임별 수강인원과 과목별 분반이 함께 보여요.</p></div>
       <div class="cg-toolbar"><span class="seg">${[1,2,3].map(gr=>`<button data-matg="${gr}" class="${g===gr?'on':''}">${gr}학년</button>`).join('')}</span>
       <span class="seg">${[1,2].map(sm=>`<button data-mats="${sm}" class="${sem===sm?'on':''}">${sm}학기</button>`).join('')}</span></div></div>
    <div class="cg-kpis">
@@ -1240,19 +1250,19 @@ function vSubjects(){
      <div class="cg-kpi"><span class="k">개설 과목 시수</span><strong>${hours}</strong><span class="u">시수</span></div>
    </div>
   </section>
-  <section class="panel"><div class="cg-heading"><h2>타임 × 과목 수강인원 검증표 <small class="muted">${g}학년 ${sem}학기</small></h2>
+  <section class="panel"><div class="cg-heading"><h2>타임별 수강인원 <small class="muted">${g}학년 ${sem}학기</small></h2>
       <span class="cg-headnote">현재 ${matSubs.length}과목 표시 · ${compact?'약어로 전체 한 화면 보기':'교과군별 자세히 보기'}</span></div>
     <div class="cg-group-tabs" role="group" aria-label="교과군 필터">${groupOptions.map(([id,label])=>`<button type="button" data-matgroup="${id}" class="${group===id?'on':''}" aria-pressed="${group===id}">${label}</button>`).join('')}</div>
     <div class="cg-legend" style="margin:12px 0 13px"><span><span class="sec g">25</span> 일반</span><span><span class="sec s">25</span> 과중</span><span><span class="sec m">25</span> 혼합</span></div>
     ${matrixHTML}
     ${compact?`<details class="cg-alias-legend"><summary>과목명 약어표 펼치기 (${matSubs.length}개)</summary><div class="cg-alias-list">${matSubs.map((s,i)=>`<span><b>${esc(shortNames[i])}</b> ${esc(s.name)}</span>`).join('')}</div></details>`:''}
-    <p class="cg-help">필요정원은 전공별로만 계산하며, 학교 평균 시수가 산출되면 총괄 배당표와 정원 화면에 표시됩니다. <strong>표 읽는 법</strong> · 각 숫자는 해당 분반의 수강인원입니다. 과목별·타임별 합계에는 같은 학생이 여러 과목에서 중복 집계될 수 있습니다. 전체 보기는 과목 약어를 사용하고, 과목명은 제목에 마우스를 올리거나 약어표에서 확인할 수 있습니다.</p>
+    <p class="cg-help"><strong>표 읽는 법</strong> · 각 숫자는 해당 분반의 수강인원입니다. 과목별·타임별 합계에는 같은 학생이 여러 과목에서 중복 집계될 수 있습니다. 전체 보기는 과목 약어를 사용하고, 과목명은 제목에 마우스를 올리거나 약어표에서 확인할 수 있습니다.</p>
   </section>
   <section class="panel cg-edit"><div class="cg-heading"><div><h2>과목·분반 상세 편집</h2><div class="cg-help">${esc(nameOfGroup[group]||'전체')} · ${editSubs.length}개 과목 표시</div></div>
      <button class="btn pri sm" data-act="addSubject">+ 과목 추가</button></div>
     <div class="tablewrap"><table class="t"><thead><tr><th>과목명</th><th>담당 전공</th><th>구분</th><th>학점</th><th>일반</th><th>과중</th><th>시수</th><th>포함</th><th>분반 (인원)</th><th>편집</th></tr></thead>
       <tbody>${edits||'<tr><td colspan="10" class="c muted">해당 교과군의 과목이 없습니다.</td></tr>'}</tbody></table></div>
-    <p class="cg-help">과목 정보나 포함 여부를 수정하면 기존 계산 기능에 따라 시수가 다시 산정됩니다. 분반 버튼을 누르면 편집 창이 열립니다.</p>
+    <p class="cg-help">학점·전공·포함 여부를 바꾸면 시수가 바로 다시 계산돼요. 분반을 고치려면 오른쪽 버튼을 누르세요.</p>
   </section>`;
 }
 
@@ -1279,7 +1289,7 @@ function openSecEditModal(subId){
       <h3>🛠️ [${s.grade}학년 ${s.sem}학기] ${esc(s.name)} — 분반 및 과목 편집</h3>
       <div class="row" style="margin-bottom:12px;background:#f8fafc;padding:10px 12px;border-radius:10px">
         <span>과목명 <input type="text" id="mSubName" style="width:170px;font-weight:700" value="${esc(s.name)}"></span>
-        <span>전공 <select id="mSubMajor">${MAJOR_IDS.map(m=>`<option ${m===s.major?'selected':''}>${m}</option>`).join('')}</select></span>
+        <span>전공 <select id="mSubMajor">${majorOptions(s.major)}</select></span>
         <span>학점 <input type="number" id="mSubCred" class="w40" value="${s.credits}"></span>
         <span>비고 <input type="text" id="mSubNote" style="width:150px" value="${esc(s.note||'')}"></span>
       </div>
@@ -1369,7 +1379,7 @@ function summaryModel(sem){
 
 function buildSummaryTableHTML(sem){
   const {items, blocks} = summaryModel(sem);
-  const head1 = `<tr><th rowspan="2">전공</th>${[3,2,1].map(g=>`<th colspan="6">${g}학년</th>`).join('')}<th rowspan="2">교과<br>계</th><th rowspan="2" title="실제 배정된 창체·부장·온라인·통합 시수 포함">필요<br>정원</th><th colspan="${items.length+1}">창체 및 교과외</th><th rowspan="2">총계</th><th rowspan="2">강사</th><th rowspan="2">평균</th></tr>`;
+  const head1 = `<tr><th rowspan="2">전공</th>${[3,2,1].map(g=>`<th colspan="6">${g}학년</th>`).join('')}<th rowspan="2">교과<br>계</th><th rowspan="2" title="실제 배정된 창체·부장·온라인·통합 시수 포함">필요<br>정원</th><th colspan="${items.length+1}">창체·부장 등</th><th rowspan="2">총계</th><th rowspan="2">강사</th><th rowspan="2">평균</th></tr>`;
   const head2 = `<tr>${[3,2,1].map(()=>`<th>과목</th><th>일반</th><th>과중</th><th>학점</th><th>시수</th><th>소계</th>`).join('')}${items.map(it=>`<th>${esc(it.name)}<br><span class="muted">(${num(it['need'+sem])})</span></th>`).join('')}<th>창체계</th></tr>`;
   let body='';
   blocks.forEach(b=>{
@@ -1497,7 +1507,7 @@ function buildBothSummaryHTML(){
     const cls=r.type==='grand'?'cg-grand-total':r.type==='group'?'cg-group-total':'cg-major-total';
     return `<tr class="${cls}"><td>${esc(r.major)}</td><td></td><td>${r.type==='major'?'전공 소계':'합계'}</td><td></td><td></td>${td(r.tot[0],'cg-net')}<td></td><td></td>${td(r.tot[1],'cg-net')}${td(fmt1((r.tot[0]+r.tot[1])/2),'cg-yearavg')}${td(cgFmtNeed(r.type==='major'?cgNeededMajor(r.major,null):cgNeededGroup(r.type==='grand'?displayMajors():GROUPS[r.major.replace(' 계','')]||[],null)),'cg-need-value')}</tr>`;
   }).join('');
-  return `<div class="cg-both-head"><div><h3 style="margin:0 0 4px">1·2학기 과목별 한 줄 비교</h3><p class="cg-help">과목별 분반 이름·인원은 생략했습니다. 온라인 개설 과목은 전공 행이 아니라 <b>창체 및 교과외 > 온라인</b>에 집계되므로 이 교과 목록에서는 제외됩니다. <b>반 수</b>는 개설 분반 수, <b>단위 시수</b>는 분반당 시수, <b>합</b>은 반 수 × 단위 시수입니다.</p></div></div>
+  return `<div class="cg-both-head"><div><h3 style="margin:0 0 4px">1·2학기 과목별 한 줄 비교</h3><p class="cg-help">과목별 분반 이름·인원은 생략했습니다. '전공없음' 과목은 맨 아래 전공없음 줄에 따로 모여 있어요. <b>반 수</b>는 개설 분반 수, <b>단위 시수</b>는 분반당 시수, <b>합</b>은 반 수 × 단위 시수입니다.</p></div></div>
   <div class="tablewrap cg-both-scroll"><table class="t cg-both-summary"><thead><tr><th rowspan="2">전공</th><th rowspan="2">학년</th><th rowspan="2">과목명</th><th colspan="3">1학기</th><th colspan="3">2학기</th><th rowspan="2">연간<br>평균 합</th><th rowspan="2">전공별<br>필요정원</th></tr><tr><th>반 수</th><th>단위 시수</th><th>합</th><th>반 수</th><th>단위 시수</th><th>합</th></tr></thead><tbody>${out}</tbody></table></div>`;
 }
 
@@ -1521,7 +1531,7 @@ function vSummary(){
         <button data-summode="both" class="${mode==='both'?'on':''}">1·2학기 동시 보기</button>
         <button data-summode="zoom" class="${mode==='zoom'?'on':''}">과목별 크게 보기</button>
       </span>
-      <span class="muted small">혼합 분반은 자동 셀병합 · 온라인은 창체 및 교과외로 집계</span>
+      <span class="muted small">혼합 = 일반·과중 학생이 섞인 분반</span>
       <span style="flex:1"></span>
       ${printBtn('printSummary')}
     </div>
@@ -1552,7 +1562,7 @@ function vCompare(){
       <td class="n">${r.s2.subj}</td><td class="n">${r.s2.ch||''}</td><td class="n">${r.s2.tutor||''}</td><td class="n strong">${fmt1(r.s2.avg)}</td>
       <td class="n" style="${d>0?'color:var(--bad)':d<0?'color:var(--ok)':''}">${d==null?'':(d>0?'+':'')+fmt1(d)}</td><td class="n strong">${fmt1(yr)}</td></tr>`;
   }).join('');
-  return `<div class="panel"><div class="row" style="margin-bottom:10px"><h2 style="margin:0">전공별 1·2학기 시수 비교</h2><span class="muted small">필요정원 = 전공별 실제 배정 시수(교과+창체·부장·온라인·통합−강사) ÷ 학교 평균 시수</span><span style="flex:1"></span>${printBtn('printCompare')}</div>
+  return `<div class="panel"><div class="row" style="margin-bottom:10px"><h2 style="margin:0">전공별 1·2학기 시수 비교</h2><span class="muted small">평균 = (교과 + 창체·부장 등 − 강사) ÷ 정원 · 필요정원 = 그 전공 시수 ÷ 교사 1인 평균 시수</span><span style="flex:1"></span>${printBtn('printCompare')}</div>
   <div class="tablewrap"><table class="t"><thead>
    <tr><th rowspan="2">교과(전공)</th><th rowspan="2">필요정원<br><small>(연간)</small></th><th colspan="4">1학기</th><th colspan="4">2학기</th><th rowspan="2">증감(2−1)</th><th rowspan="2">연간 평균</th></tr>
    <tr><th>교과</th><th>창체</th><th>강사</th><th>평균</th><th>교과</th><th>창체</th><th>강사</th><th>평균</th></tr></thead><tbody>${body}</tbody></table></div></div>`;
@@ -1561,17 +1571,17 @@ function vCompare(){
 /* ----- 5. 정원·강사·창체 탭 ----- */
 function vChang(){
   const sem=UI.changSem,items=cgExtraItems(),majors=displayMajors();
-  const teacherMajors=majors.filter(m=>!isShared(m));
+  const teacherMajors=majors.filter(m=>!isShared(m)&&m!==NOMAJOR);
   const br1=cgBreakdown(1),br2=cgBreakdown(2),b=cgBreakdown(sem);
   const cQ=cgQuotaInfo(),schoolAvg=cgSchoolAverage();
   const sumTeach=teacherMajors.reduce((t,m)=>t+num(cap(m).quota),0);
   const capRows=majors.map(m=>{
-    const c=cap(m),shared=isShared(m);
-    return `<tr><td><b>${esc(m)}</b>${shared?'<br><span class="cg-shared-label">배분 전용</span>':''}</td>
+    const c=cap(m),shared=isShared(m)||m===NOMAJOR;
+    return `<tr><td><b>${esc(majorLabel(m))}</b>${shared?`<br><span class="cg-shared-label">${m===NOMAJOR?'정원 계산에서 빠짐':'다른 전공에 나눠 줌'}</span>`:''}</td>
       <td class="n">${shared?'—':cgEffectiveHours(m,1)}</td>
       <td class="n">${shared?'—':cgEffectiveHours(m,2)}</td>
-      <td class="n cg-need-value"><b>${shared?'배분 대상':cgFmtNeed(cgNeededMajor(m,null))}</b></td>
-      <td class="c">${shared?'<span class="muted small">정원 없음</span>':m==='진로'?'<b title="1학년 진로 수업 전담 1명">1명 (전담)</b>':`<input type="number" min="0" data-cap="${m}" data-f="quota" value="${c.quota??''}" placeholder="미입력">`}</td>
+      <td class="n cg-need-value"><b>${shared?(m===NOMAJOR?'제외':'나눠 줌'):cgFmtNeed(cgNeededMajor(m,null))}</b></td>
+      <td class="c">${shared?'<span class="muted small">—</span>':m==='진로'?'<b title="1학년 진로 수업 전담 1명">1명 (전담)</b>':`<input type="number" min="0" data-cap="${m}" data-f="quota" value="${c.quota??''}" placeholder="미입력">`}</td>
       <td class="c">${shared?'—':`<input type="number" min="0" data-cap="${m}" data-f="tutor1" value="${c.tutor1??''}">`}</td>
       <td class="c">${shared?'—':`<input type="number" min="0" data-cap="${m}" data-f="tutor2" value="${c.tutor2??''}">`}</td>
       <td>${shared?'':`<input type="text" style="width:132px" data-cap="${m}" data-f="memo" value="${esc(c.memo||'')}">`}</td></tr>`;
@@ -1585,53 +1595,53 @@ function vChang(){
   const grid=teacherMajors.map(m=>`<tr><td><b>${esc(m)}</b></td>${items.map(it=>it.id===ONLINE_ITEM_ID?`<td class="c cg-online-col"><input type="number" min="0" class="w40" data-shared="온라인" data-shmaj="${esc(m)}" value="${cgItemAllocated(it,m,sem)||''}" aria-label="${esc(m)} 온라인 배정시수"></td>`:`<td class="c"><input type="number" min="0" class="w40" data-al="${m}" data-item="${it.id}" value="${(al[m]||{})[it.id]??''}"></td>`).join('')}<td class="n strong">${changOf(m,sem)||''}</td></tr>`).join('');
   const chk=items.map((it,i)=>{
     const need=num(it['need'+sem]),v=colTot[i],ok=v===need;
-    return `<td class="c"><b>${v}/${need}</b> ${ok?'<span class="pill ok">완료</span>':`<span class="pill ${v>need?'bad':'warn'}">${v>need?'+':''}${v-need}</span>`}</td>`;
+    return `<td class="c"><b>${v}/${need}</b> ${ok?'<span class="pill ok">✓</span>':`<span class="pill ${v>need?'bad':'warn'}">${v>need?'+':''}${v-need}</span>`}</td>`;
   }).join('');
   const sources=cgSharedSources(sem);
   const sharedGrid=teacherMajors.map(m=>`<tr><td><b>${esc(m)}</b></td>${sources.map(source=>`<td class="c"><input type="number" min="0" step="1" class="w40" data-shared="${esc(source)}" data-shmaj="${esc(m)}" value="${((((S.sharedAlloc||{})[sem]||{})[source]||{})[m])??''}" aria-label="${esc(m)} ${esc(source)} 배정시수"></td>`).join('')}<td class="n strong">${cgSharedTarget(m,sem)||''}</td></tr>`).join('');
   const sharedChecks=sources.map(source=>{
     const need=majorHours(source,sem),v=cgSharedAssigned(source,sem),diff=need-v;
-    return `<td class="c"><b>${v}/${need}</b> <span class="pill ${diff===0?'ok':diff<0?'bad':'warn'}">${diff===0?'완료':diff>0?'미배정 '+diff:'초과 '+(-diff)}</span></td>`;
+    return `<td class="c"><b>${v}/${need}</b> <span class="pill ${diff===0?'ok':diff<0?'bad':'warn'}">${diff===0?'✓':diff>0?diff+' 남음':(-diff)+' 넘침'}</span></td>`;
   }).join('');
-  const gapText=(g)=>g===0?'배정 완료':g>0?`미배정 ${fmt1(g)}시수`:`초과 배정 ${fmt1(-g)}시수`;
+  const gapText=(g)=>g===0?'다 나눔':g>0?`${fmt1(g)}시수 남음`:`${fmt1(-g)}시수 넘침`;
   const warnings=[];
   if(b.changGap!==0)warnings.push(`창체·부장 등 ${gapText(b.changGap)}`);
-  if(b.share.gap!==0)warnings.push(`통합 교과 ${gapText(b.share.gap)}`);
-  const status=warnings.length?`<div class="cg-balance-alert" role="status"><b>${sem}학기 배분 점검</b> · ${esc(warnings.join(' / '))}. 학교 평균은 배분 전 전체 필요 시수로 계산되므로, 정원 산출에 미배정분을 별도로 표시합니다.</div>`:
-      `<div class="cg-balance-good" role="status">${sem}학기 창체·교과외(온라인 포함) 및 통합 교과의 배분 합계가 필요 시수와 일치합니다.</div>`;
+  if(b.share.gap!==0)warnings.push(`통합 과목 ${gapText(b.share.gap)}`);
+  const status=warnings.length?`<div class="cg-balance-alert" role="status"><b>${sem}학기 아직 나누지 않은 시수</b> · ${esc(warnings.join(' / '))}</div>`:
+      `<div class="cg-balance-good" role="status">${sem}학기 창체·부장 등과 통합 과목 시수를 모두 나눴어요.</div>`;
   return `<div class="cg-capacity-page">
-    <div class="panel"><h2>학교 평균 시수 · 전공별 필요정원</h2>
+    <div class="panel"><h2>① 교사 정원</h2><p class="cg-help" style="margin-top:-4px">학교 전체 정원을 넣거나, 비워 두고 아래 표에 전공별 정원을 넣으세요. 넣으면 평균 시수와 전공별 필요정원이 계산돼요.</p>
       <div class="cg-school-quota">
-        <div class="cg-quota-field"><label for="cgSchoolQuota">학교 전체 교사 정원</label><input id="cgSchoolQuota" data-schoolquota="1" type="number" min="1" step="1" placeholder="정원 확정 후 입력" value="${S.schoolQuota??''}"><small>진로 전공 1명 포함 · 전체 정원 입력 또는 전공별 정원 합산</small></div>
-        <div class="cg-quota-metric"><span>학교 전체 연간 평균 필요 시수</span><strong>${fmt1((br1.total+br2.total)/2)}</strong><small>시수 · 배분 전 전체 필요 기준</small></div>
-        <div class="cg-quota-metric"><span>학교 평균 시수 / 교사</span><strong>${schoolAvg==null?'—':fmt1(schoolAvg)}</strong><small>${schoolAvg==null?'교사 정원 입력 대기':'시수/명'}</small></div>
+        <div class="cg-quota-field"><label for="cgSchoolQuota">학교 전체 교사 정원</label><input id="cgSchoolQuota" data-schoolquota="1" type="number" min="1" step="1" placeholder="정원 확정 후 입력" value="${S.schoolQuota??''}"><small>진로 교사 1명 포함 · 비워 두면 전공별 정원을 더해요</small></div>
+        <div class="cg-quota-metric"><span>학교 전체 시수 (1·2학기 평균)</span><strong>${fmt1((br1.total+br2.total)/2)}</strong><small>교과 + 창체·부장 등 − 강사</small></div>
+        <div class="cg-quota-metric"><span>교사 1인 평균 시수</span><strong>${schoolAvg==null?'—':fmt1(schoolAvg)}</strong><small>${schoolAvg==null?'정원을 넣으면 계산돼요':'시수/명'}</small></div>
       </div>
-      <div class="tablewrap cg-school-breakdown"><table class="t"><thead><tr><th>학기</th><th>교과 전체<br><small>온라인 제외 · 통합 포함</small></th><th>창체·교과외·온라인 등<br><small>필요 시수</small></th><th>강사 담당<br><small>학교 교사 제외</small></th><th>학교 산정 시수</th><th>전공별 배정 합</th><th>차이(미배정)</th></tr></thead><tbody>
-        ${[1,2].map(n=>{const x=cgBreakdown(n);return `<tr><td class="c"><b>${n}학기</b></td><td class="n">${x.curriculum}</td><td class="n">+ ${x.extra}</td><td class="n">${x.tutor?'- '+x.tutor:'0'}</td><td class="n strong">${x.total}</td><td class="n">${x.allocated}</td><td class="n"><span class="pill ${x.gap===0?'ok':x.gap>0?'warn':'bad'}">${x.gap===0?'일치':x.gap>0?'미배정 '+x.gap:'초과 '+(-x.gap)}</span></td></tr>`;}).join('')}
+      <div class="tablewrap cg-school-breakdown"><table class="t"><thead><tr><th>학기</th><th>교과<br><small>통합 포함</small></th><th>창체·부장 등</th><th>강사 담당</th><th>학교 전체 시수</th><th>전공에 나눈 시수</th><th>남은 시수</th></tr></thead><tbody>
+        ${[1,2].map(n=>{const x=cgBreakdown(n);return `<tr><td class="c"><b>${n}학기</b></td><td class="n">${x.curriculum}</td><td class="n">+ ${x.extra}</td><td class="n">${x.tutor?'- '+x.tutor:'0'}</td><td class="n strong">${x.total}</td><td class="n">${x.allocated}</td><td class="n"><span class="pill ${x.gap===0?'ok':x.gap>0?'warn':'bad'}">${x.gap===0?'다 나눔':x.gap>0?x.gap+'시수 남음':(-x.gap)+'시수 넘침'}</span></td></tr>`;}).join('')}
       </tbody></table></div>
-      <p class="cg-help"><b>학교 평균 시수</b> = (온라인을 제외한 교과시수 <b>+ 온라인 개설시수 + 창체·부장·자치·적응 등 필요 시수 − 강사 시수</b>)의 1·2학기 평균 ÷ 학교 교사 정원.<br>
-      <b>전공별 필요정원</b> = (전공 교과시수 + 그 전공에 배정한 온라인·창체·부장·자치·적응·통합 시수 − 강사 시수)의 1·2학기 평균 ÷ 학교 평균 시수.<br>
-      온라인은 전공이 아니라 <b>창체 및 교과외의 공통 배분 항목</b>입니다. 온라인·통합·창체 전담 교사가 별도로 있다고 가정하지 않습니다. 단, <b>진로는 전공 교사 1명 담당</b>이며 1학년 진로는 교과에서만 1회 계산합니다. 학교 평균은 <b>배정 전에도 전체 필요 시수로 산정</b>됩니다. 정원 기준: ${esc(cQ.source)}.</p>
-      ${[1,2].some(n=>cgDuplicateWarnings(n))?`<div class="cg-balance-alert"><b>중복 계산 확인</b> · ${[1,2].map(n=>cgDuplicateWarnings(n)?`${n}학기: ${esc(cgDuplicateWarnings(n))}`:'').filter(Boolean).join(' / ')}</div>`:''}
+      <details class="cg-calc"><summary>계산 방법 보기</summary><p class="cg-help"><b>교사 1인 평균 시수</b> = (교과 시수 + 창체·부장 등 − 강사 시수)의 1·2학기 평균 ÷ 교사 정원<br>
+      <b>전공별 필요정원</b> = (그 전공의 교과 시수 + 그 전공이 나눠 받은 창체·부장·통합 시수 − 강사 시수)의 1·2학기 평균 ÷ 교사 1인 평균 시수<br>
+      '전공없음' 과목은 정원 계산에서 빠져요. 1학년 진로는 진로 교사 1명이 맡는 교과로 한 번만 계산해요. 지금 정원 기준: ${esc(cQ.source)}.</p></details>
+      ${[1,2].some(n=>cgDuplicateWarnings(n))?`<div class="cg-balance-alert"><b>겹쳐서 계산될 뻔한 시수</b> · ${[1,2].map(n=>cgDuplicateWarnings(n)?`${n}학기: ${esc(cgDuplicateWarnings(n))}`:'').filter(Boolean).join(' / ')}</div>`:''}
     </div>
-    <div class="panel"><h2>전공별 필요정원 · 교사 정원</h2>
-      <div class="tablewrap"><table class="t"><thead><tr><th>전공</th><th>1학기<br>배정 시수</th><th>2학기<br>배정 시수</th><th>연간<br>필요정원</th><th>교사 정원(명)</th><th>강사 1학기</th><th>강사 2학기</th><th>메모</th></tr></thead><tbody>${capRows}
-      <tr class="tot"><td>학교 전체</td><td class="n">${br1.total}</td><td class="n">${br2.total}</td><td class="n cg-need-value">${cgFmtNeed(cgNeededSchool(null))}</td><td class="n">${cQ.quota??'—'}</td><td class="n">${br1.tutor}</td><td class="n">${br2.tutor}</td><td><span class="small">배정 전 필요 시수 기준</span></td></tr></tbody></table></div>
+    <div class="panel"><h2>② 전공별 정원·강사 시수</h2><p class="cg-help" style="margin-top:-4px">강사 시수 = 학교 교사가 아닌 강사가 맡는 시수예요. 평균을 낼 때 빼요.</p>
+      <div class="tablewrap"><table class="t"><thead><tr><th>전공</th><th>1학기<br>시수</th><th>2학기<br>시수</th><th>필요정원<br><small>(연간)</small></th><th>교사 정원(명)</th><th>강사 시수<br>1학기</th><th>강사 시수<br>2학기</th><th>메모</th></tr></thead><tbody>${capRows}
+      <tr class="tot"><td>학교 전체</td><td class="n">${br1.total}</td><td class="n">${br2.total}</td><td class="n cg-need-value">${cgFmtNeed(cgNeededSchool(null))}</td><td class="n">${cQ.quota??'—'}</td><td class="n">${br1.tutor}</td><td class="n">${br2.tutor}</td><td></td></tr></tbody></table></div>
     </div>
-    <div class="panel"><h2>창체·교과외 필요 시수 설정 <span class="cg-mini-flag">온라인 자동 반영</span></h2>
-      <p class="cg-help"><b>1학년 진로는 진로 전공 교사 1명이 전담</b>하므로 교과시수에만 포함합니다(1~10반 × 1시수 = 학기당 10시수). 창체의 중복 '진로' 항목은 자동 제외했습니다. 부장·담임(자치)·적응 등 그 밖의 필요 시수만 아래에서 배분합니다.</p>
-      <div class="tablewrap"><table class="t"><thead><tr><th>항목명</th><th>1학기 필요</th><th>2학기 필요</th><th></th></tr></thead><tbody><tr class="cg-online-need-row"><td><b>온라인</b> <span class="muted small">개설 분반에서 자동 계산</span></td><td class="c"><b>${cgOnlineNeed(1)}</b></td><td class="c"><b>${cgOnlineNeed(2)}</b></td><td class="muted small">자동</td></tr>${itemRows}</tbody></table></div>
+    <div class="panel"><h2>③ 창체·부장 등 필요 시수</h2>
+      <p class="cg-help">학교 전체에서 맡아야 하는 시수예요. 예: 담임(자치) 30학급이면 30. 1학년 진로는 진로 교사가 맡는 교과로 따로 계산돼요.</p>
+      <div class="tablewrap"><table class="t"><thead><tr><th>항목</th><th>1학기</th><th>2학기</th><th></th></tr></thead><tbody>${itemRows}</tbody></table></div>
       <div class="row" style="margin-top:8px"><button class="btn pri sm" data-act="itemAdd">+ 항목 추가</button></div>
     </div>
-    <div class="panel"><div class="row" style="margin-bottom:10px"><h2 style="margin:0">전공별 창체 및 교과외 배분 <span class="cg-mini-flag">온라인 포함</span></h2> ${semSeg('changSem')}
-      <span style="flex:1"></span><button class="btn sm" data-act="copyChang">${sem}학기 → ${3-sem}학기 복사</button><button class="btn sm" data-act="fillFromTeachers">교사 입력 합계로 채우기</button></div>
+    <div class="panel"><div class="row" style="margin-bottom:10px"><h2 style="margin:0">④ 창체·부장 시수를 전공별로 나누기</h2> ${semSeg('changSem')}
+      <span style="flex:1"></span><button class="btn sm" data-act="copyChang">${sem}학기 값을 ${3-sem}학기에도 똑같이</button><button class="btn sm" data-act="fillFromTeachers">교사 탭에 적은 값으로 채우기</button></div>
       <div class="tablewrap"><table class="t"><thead><tr><th>전공</th>${items.map(it=>`<th>${esc(it.name)}</th>`).join('')}<th>합계</th></tr></thead>
-      <tbody>${grid}<tr class="tot"><td>배분/필요</td>${chk}<td class="n">${colTot.reduce((a,bb)=>a+bb,0)} / ${cgChangNeed(sem)}</td></tr></tbody></table></div>
+      <tbody>${grid}<tr class="tot"><td>나눈 시수 / 필요</td>${chk}<td class="n">${colTot.reduce((a,bb)=>a+bb,0)} / ${cgChangNeed(sem)}</td></tr></tbody></table></div>
     </div>
-    <div class="panel"><h2>통합 교과 → 담당 전공 배분</h2>
-      <p class="cg-help">통합 교과 영역은 전담 교사 정원 없이 <b>기존 교과 교사가 맡는 시수</b>입니다. 온라인은 위의 창체 및 교과외 배분표로 이동했습니다. 분반 교과시수 총합을 각 전공에 나누어 입력하세요. 시수는 학교 평균에 이미 1회 반영되어 있으므로, 아래 입력값은 <b>어느 전공에 귀속할지</b>만 결정합니다.</p>
+    <div class="panel"><h2>⑤ 통합 과목 시수를 전공별로 나누기</h2>
+      <p class="cg-help">통합사회·통합과학처럼 전담 교사가 없는 과목이에요. 맡을 전공에 시수를 나눠 적어 주세요.</p>
       ${sources.length?`<div class="tablewrap"><table class="t"><thead><tr><th>담당 전공</th>${sources.map(source=>`<th>${esc(source)}<br><small>총 ${majorHours(source,sem)}시수</small></th>`).join('')}<th>배정 합계</th></tr></thead>
-      <tbody>${sharedGrid}<tr class="tot"><td>배분/필요</td>${sharedChecks}<td class="n">${b.share.assigned} / ${b.share.target}</td></tr></tbody></table></div>`:'<p class="muted small">선택된 학기에 배분할 통합 교과시수가 없습니다. 온라인 시수는 위 창체 및 교과외 표에서 배분합니다.</p>'}
+      <tbody>${sharedGrid}<tr class="tot"><td>나눈 시수 / 필요</td>${sharedChecks}<td class="n">${b.share.assigned} / ${b.share.target}</td></tr></tbody></table></div>`:'<p class="muted small">이 학기에는 나눌 통합 과목이 없어요.</p>'}
       ${status}
     </div>
   </div>`;
@@ -1660,14 +1670,14 @@ function vTeachers(){
       <td><button class="btn sm danger" data-act="tDel" data-id="${t.id}">삭제</button></td></tr>`;
   }).join('');
   const metric=(name,value,desc)=>`<div class="cg-load-metric"><span>${name}</span><strong>${value}</strong><small>${desc}</small></div>`;
-  const refName=avg!=null?'학교 평균':'등록된 교사 평균';
+  const refName=avg!=null?'교사 1인 평균':'등록 교사 평균';
   return `<div class="cg-teacher-page">
-    <div class="panel"><div class="row cg-head-row"><div><h2 style="margin:0">교사별 시수 균형 분석</h2><p class="cg-help">교과 담당 분반 + 온라인·창체·부장·자치·적응 등을 합산하여 비교합니다. 시수를 입력하면 아래 그래프가 즉시 갱신됩니다.</p></div>${semSeg('teachSem')}<select data-ui="teachSort" aria-label="교사 표시 순서"><option value="major" ${UI.teachSort==='major'?'selected':''}>전공순</option><option value="low" ${UI.teachSort==='low'?'selected':''}>총시수 낮은 순</option><option value="high" ${UI.teachSort==='high'?'selected':''}>총시수 높은 순</option></select></div>
-      <div class="cg-load-metrics">${metric('등록된 교사',roster.length+'명','교사 명단 기준')}${metric('학교 평균 시수',avg==null?'—':fmt1(avg),'학교 전체 정원 입력 시 계산')}${metric('등록 교사 평균',rosterAvg==null?'—':fmt1(rosterAvg),'입력 완료 범위의 시수 기준')}${metric('온라인 배분',`${cgSharedAssigned('온라인',sem)}/${cgOnlineNeed(sem)}`,'전공별 배분 / 전체 필요')}</div>
-      ${roster.length?`<div class="tablewrap"><table class="t cg-load-table"><thead><tr><th>교사 · 전공</th><th>교과</th><th>온라인·창체 등</th><th>총시수</th><th>${refName} 대비</th><th style="width:30%">업무량 비교</th></tr></thead><tbody>${balanceRows}</tbody></table></div><p class="cg-help">${avg==null?'학교 교사 정원 미확정: 현재는 <b>등록된 교사들끼리의 평균</b>과 비교하며, 학교 평균 시수로 오해하지 않도록 구분했습니다.':'학교 평균은 전체 교사 정원과 학교 전체 시수를 기준으로 산출합니다.'} 교과 분반을 지정하지 않은 교사의 교과시수는 0으로 표시됩니다.</p>`:'<div class="info">아직 교사 명단이 없습니다. 아래에서 교사를 등록하면 온라인·부장·창체 등 배정 전후의 업무량을 비교할 수 있습니다.</div>'}
+    <div class="panel"><div class="row cg-head-row"><div><h2 style="margin:0">교사 명단</h2><p class="cg-help">[여러 명 붙여넣기]로 한 번에 넣을 수 있어요. 교사마다 창체·부장 시수를 적으면, 5단계에서 [교사 탭에 적은 값으로 채우기]로 전공별 표에 옮길 수 있어요.</p></div><span style="flex:1"></span><button class="btn sm" data-act="tAdd">+ 교사 1명 추가</button><button class="btn pri sm" data-act="tBulk">📋 여러 명 붙여넣기</button></div>
+      ${S.teachers.length?`<div class="tablewrap"><table class="t"><thead><tr><th>전공</th><th>이름</th><th>비고</th>${items.map(it=>`<th class="${it.id===ONLINE_ITEM_ID?'cg-online-col':''}">${esc(it.name)}</th>`).join('')}<th>교과</th><th>창체·부장 등</th><th>총시수</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`:'<div class="info">아직 교사가 없어요. [📋 여러 명 붙여넣기]를 눌러 <b>전공 이름</b>을 한 줄에 한 명씩 붙여 넣으세요. 예: 수학 김남훈</div>'}
     </div>
-    <div class="panel"><div class="row cg-head-row"><div><h2 style="margin:0">교사별 담당 시수 입력</h2><p class="cg-help">온라인은 별도 전공이 아닌 <b>공동 배분 업무</b>입니다. 교사에게 온라인 시수를 입력한 뒤, 정원·강사·창체 탭의 <b>교사 입력 합계로 채우기</b>를 눌러 전공별 표에 반영합니다.</p></div><span style="flex:1"></span><button class="btn sm" data-act="tAdd">+ 교사 1명 추가</button><button class="btn pri sm" data-act="tBulk">📋 여러 명 붙여넣기</button></div>
-      ${S.teachers.length?`<div class="tablewrap"><table class="t"><thead><tr><th>전공</th><th>이름</th><th>비고</th>${items.map(it=>`<th class="${it.id===ONLINE_ITEM_ID?'cg-online-col':''}">${esc(it.name)}</th>`).join('')}<th>교과</th><th>창체·교과외</th><th>총시수</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`:'<div class="info">교사 명단이 없습니다. [📋 여러 명 붙여넣기]로 전공과 이름을 등록할 수 있습니다.</div>'}
+    <div class="panel"><div class="row cg-head-row"><div><h2 style="margin:0">교사별 시수 비교</h2><p class="cg-help">맡은 분반 시수와 창체·부장 등을 더해서 비교해요. 분반 배정이나 시수를 바꾸면 바로 바뀌어요.</p></div>${semSeg('teachSem')}<select data-ui="teachSort" aria-label="교사 표시 순서"><option value="major" ${UI.teachSort==='major'?'selected':''}>전공순</option><option value="low" ${UI.teachSort==='low'?'selected':''}>총시수 낮은 순</option><option value="high" ${UI.teachSort==='high'?'selected':''}>총시수 높은 순</option></select></div>
+      <div class="cg-load-metrics">${metric('등록된 교사',roster.length+'명','교사 명단 기준')}${metric('교사 1인 평균 시수',avg==null?'—':fmt1(avg),'5단계에서 정원을 넣으면 계산돼요')}${metric('등록 교사 평균',rosterAvg==null?'—':fmt1(rosterAvg),'지금 입력된 교사 기준')}</div>
+      ${roster.length?`<div class="tablewrap"><table class="t cg-load-table"><thead><tr><th>교사 · 전공</th><th>교과</th><th>창체·부장 등</th><th>총시수</th><th>${refName}과 차이</th><th style="width:30%">비교</th></tr></thead><tbody>${balanceRows}</tbody></table></div><p class="cg-help">${avg==null?'아직 교사 정원이 없어서 <b>등록된 교사들끼리의 평균</b>과 비교하고 있어요.':'교사 1인 평균 시수와 비교해요.'} 분반을 아직 안 맡은 교사는 교과 시수가 0으로 보여요.</p>`:'<div class="info">교사 명단을 넣으면 여기에서 교사별 시수를 비교할 수 있어요.</div>'}
     </div>
   </div>`;
 }
@@ -1709,7 +1719,7 @@ function vAssign(){
     const list=[]; S.subjects.forEach(s=>{ if(s.sem!==sem||!active(s))return; const ls=s.sections.filter(x=>x.teacher===t.id).map(x=>x.label); if(ls.length) list.push(`${s.grade}${s.name}(${ls.join(',')})`); });
     return `<tr><td><b>${esc(t.name)}</b> <span class="muted small">${t.major}</span></td><td class="n">${sh}</td><td class="n">${ch||''}</td><td class="n strong">${sh+ch}</td><td class="small">${esc(list.join(' · '))}</td></tr>`; }).join('');
   return `<div class="panel"><div class="row" style="margin-bottom:10px"><h2 style="margin:0">교과별 분반 배정</h2>
-     <select data-ui="assignMajor" style="font-weight:700">${keys.map(k=>`<option ${k===key?'selected':''} value="${k}">${GROUPS[k]?k+' 교과군 전체':k==='온라인'?'온라인 과목 확인 (시수는 창체·교과외)':k}</option>`).join('')}</select> ${semSeg('sem')}
+     <select data-ui="assignMajor" style="font-weight:700">${keys.map(k=>`<option ${k===key?'selected':''} value="${k}">${GROUPS[k]?k+' 교과군 전체':k==='온라인'?'공동배분 과목 확인 (시수는 창체·교과외)':k===NOMAJOR?'전공없음 과목 (아무 교사나 배정)':k}</option>`).join('')}</select> ${semSeg('sem')}
      <span class="muted small">${subs.length}과목 · <b>${total}</b>시수 · 미배정 <b>${unassigned}</b>개</span><span style="flex:1"></span>
      ${printBtn('printAssign')}</div>
    <div class="split-a">
@@ -1724,19 +1734,21 @@ document.addEventListener('click',e=>{
   if(!S||S.workspaceStatus!=='confirmed')return;
   const b=e.target.closest('button');if(!b)return;
   if(b.closest('#tabs'))return;
+  if(b.dataset.stepgo||b.dataset.subview||b.dataset.chkgrade)return; // 6.5 단계 이동은 허용
+  if(['cgSwitchYear','cgNewYear','cgReopen','cgSnapshot','cgRestore','cgExportAll','cgImportAll'].includes(b.dataset.act))return;
   if(b.closest('#modal'))return;
-  const allowG=['years','exportXlsx'];if(b.dataset.gact&&allowG.includes(b.dataset.gact))return;
-  if(b.dataset.gact){e.preventDefault();e.stopImmediatePropagation();toast('확정본은 수정할 수 없습니다. 작업 모드로 전환하세요.');return;}
+  const allowG=['years','exportXlsx','settings'];if(b.dataset.gact&&allowG.includes(b.dataset.gact))return;
+  if(b.dataset.gact){e.preventDefault();e.stopImmediatePropagation();toast('확정된 학년도예요. 7단계에서 잠금을 풀어야 고칠 수 있어요.');return;}
   if(!b.closest('#main')||UI.tab==='years')return;
   if(b.dataset.matg||b.dataset.mats||b.dataset.matgroup||b.dataset.semset||b.dataset.summode)return;
   if(['saveJson','exportXlsx','printSummary','printCompare','printAssign','zoomMajor'].includes(b.dataset.act))return;
-  e.preventDefault();e.stopImmediatePropagation();toast('확정본은 수정할 수 없습니다. 작업 모드로 전환하세요.');
+  e.preventDefault();e.stopImmediatePropagation();toast('확정된 학년도예요. 7단계에서 잠금을 풀어야 고칠 수 있어요.');
 },true);
 document.addEventListener('change',e=>{
   if(!S||S.workspaceStatus!=='confirmed')return;
   const t=e.target;
-  if(['fileAssign','filePyeonje','fileJson'].includes(t.id)){e.preventDefault();e.stopImmediatePropagation();t.value='';toast('확정본입니다. 먼저 작업 모드로 전환하세요.');return;}
-  if(t.closest('#main')&&UI.tab!=='years'&&!t.dataset.ui){e.preventDefault();e.stopImmediatePropagation();render();toast('확정본은 수정할 수 없습니다.');}
+  if(['fileAssign','filePyeonje','fileJson'].includes(t.id)){e.preventDefault();e.stopImmediatePropagation();t.value='';toast('확정된 학년도예요. 7단계에서 잠금을 풀어야 고칠 수 있어요.');return;}
+  if(t.closest('#main')&&UI.tab!=='years'&&!t.dataset.ui){e.preventDefault();e.stopImmediatePropagation();render();toast('확정된 학년도예요. 7단계에서 잠금을 풀어야 고칠 수 있어요.');}
 },true);
 
 /* ========== 이벤트 처리 ========== */
@@ -1752,6 +1764,7 @@ document.querySelector('header').addEventListener('click', e=>{
   else if (gact === 'uploadPyeonje') document.getElementById('filePyeonje').click();
   else if (gact === 'exportXlsx') exportXlsx();
   else if (gact === 'years'){UI.tab='years';render();}
+  else if (gact === 'settings'){ if(UI.tab!=='setup'&&UI.tab!=='years') UI.stReturn=UI.tab; UI.tab='setup';render();window.scrollTo(0,0);}
 });
 
 document.addEventListener('keydown', e=>{
@@ -1788,7 +1801,7 @@ main.addEventListener('click', async e=>{
     case 'cgReviewApprove': {
       if(!cgPendingAssign||cgPendingAssign.fatal.length)break;
       const p=cgPendingAssign, s=p.comparison.summary;
-      openConfirm(`${S.year}학년도 ${p.grade}학년 분반을 '${p.fileName}' 기준으로 변경할까요? 변경 전 작업본을 자동 저장합니다. 1학기 시수 ${s.bySem[1].oldHours}→${s.bySem[1].newHours}, 2학기 시수 ${s.bySem[2].oldHours}→${s.bySem[2].newHours}.`,()=>cgApproveAssign());
+      openConfirm(`${S.year}학년도 ${p.grade}학년 분반을 '${p.fileName}' 내용으로 바꿀까요? 바꾸기 전 상태는 '중간 저장'에 자동으로 남아요. 1학기 시수 ${s.bySem[1].oldHours}→${s.bySem[1].newHours}, 2학기 시수 ${s.bySem[2].oldHours}→${s.bySem[2].newHours}.`,()=>cgApproveAssign());
       break;
     }
     case 'cgSwitchYear': cgLoadYear(Number(b.dataset.year)); break;
@@ -1806,12 +1819,12 @@ main.addEventListener('click', async e=>{
       break;
     }
     case 'cgSnapshot': {
-      openModal('<h3>현재 작업 시점 저장</h3><p class="small muted">작업본에 알아보기 쉬운 이름을 붙여 주세요.</p><input id="cgCpName" type="text" style="width:100%" maxlength="60" placeholder="예: 1차 반편성 확정 전"><div class="row" style="margin-top:12px"><button class="btn pri" id="mOk">저장</button><button class="btn" id="mCancel">취소</button></div>',m=>{m.querySelector('#mOk').onclick=()=>{const v=m.querySelector('#cgCpName').value.trim()||'작업본';closeModal();cgCheckpoint(v);};});
+      openModal('<h3>지금 상태 중간 저장</h3><p class="small muted">나중에 알아보기 쉬운 이름을 붙여 주세요.</p><input id="cgCpName" type="text" style="width:100%" maxlength="60" placeholder="예: 1차 반편성 확정 전"><div class="row" style="margin-top:12px"><button class="btn pri" id="mOk">저장</button><button class="btn" id="mCancel">취소</button></div>',m=>{m.querySelector('#mOk').onclick=()=>{const v=m.querySelector('#cgCpName').value.trim()||'작업본';closeModal();cgCheckpoint(v);};});
       break;
     }
-    case 'cgConfirm':openConfirm(`${S.year}학년도를 확정하고 편집을 잠글까요? 확정 후에도 작업 모드로 전환할 수 있으며 확정 시점은 별도로 저장됩니다.`,()=>cgConfirmYear());break;
-    case 'cgReopen':openConfirm('확정본 잠금을 해제해 작업 모드로 돌아갈까요? 확정 시점 백업은 그대로 남습니다.',()=>cgReopenYear());break;
-    case 'cgRestore':openConfirm('해당 저장 시점으로 되돌릴까요? 현재 미저장 수정은 사라질 수 있습니다. 먼저 작업본을 저장하는 것을 권장합니다.',()=>cgRestoreCheckpoint(id));break;
+    case 'cgConfirm':openConfirm(`${S.year}학년도를 확정하고 잠글까요? 나중에 잠금을 풀 수 있고, 확정할 때의 상태는 따로 남아요.`,()=>cgConfirmYear());break;
+    case 'cgReopen':openConfirm('잠금을 풀고 다시 고칠 수 있게 할까요? 확정할 때의 상태는 중간 저장 목록에 그대로 남아요.',()=>cgReopenYear());break;
+    case 'cgRestore':openConfirm('이 시점으로 되돌릴까요? 그 뒤에 고친 내용은 사라져요. 필요하면 먼저 [지금 상태 중간 저장]을 눌러 두세요.',()=>cgRestoreCheckpoint(id));break;
     case 'cgExportAll':cgExportAll();break;
     case 'cgImportAll':document.getElementById('filePortfolio').click();break;
     case 'zoomMajor': UI.sumMode='zoom'; UI.zoomMajor=b.dataset.m; render(); break;
@@ -1874,7 +1887,7 @@ document.addEventListener('change', async e=>{
 
 async function handleAssignFile(file){
   try{
-    if(S.workspaceStatus==='confirmed'){toast('확정본입니다. 먼저 작업 모드로 전환하세요.');return;}
+    if(S.workspaceStatus==='confirmed'){toast('확정된 학년도예요. 7단계에서 잠금을 풀어야 고칠 수 있어요.');return;}
     const wb=await readWorkbook(file),sum=parseAssignWB(wb);
     cgStageAssign(sum,sum.grade,file);
   }catch(e){cgPendingAssign=null;UI.tab='review';render();toast('배정내역 검토 오류: '+e.message);}
@@ -1882,17 +1895,17 @@ async function handleAssignFile(file){
 
 async function handlePyeonjeFile(file){
   try{
-    if(S.workspaceStatus==='confirmed'){toast('확정본입니다. 학년도 관리에서 작업 모드로 전환하세요.');return;}
+    if(S.workspaceStatus==='confirmed'){toast('확정된 학년도예요. 7단계에서 잠금을 풀어야 고칠 수 있어요.');return;}
     const wb = await readWorkbook(file); const p = parsePyeonjeWB(wb);
     const entry = p.entry; const yr = S.year;
     const def = g => entry && (yr-entry+1)===g;
-    openModal(`<h3>📋 편제표 확인</h3>
+    openModal(`<h3>📋 편제표 넣기</h3>
       <p><b>${esc(file.name)}</b> · 시트 '${esc(p.sheet)}' · ${entry?entry+'학년도 입학':'입학년도 미확인'}</p>
       ${[1,2,3].map(g=>`<div class="row" style="margin:6px 0"><label style="cursor:pointer"><input type="checkbox" class="mG" value="${g}" ${def(g)?'checked':''}> 편제표 ${g}학년 부분 → ${yr}학년도 ${g}학년</label></div>`).join('')}
       <div class="row" style="margin-top:12px"><button class="btn pri lg" id="mOk">적용하기</button><button class="btn lg" id="mCancel">취소</button></div>`,
-      m=>{ m.querySelector('#mOk').onclick=()=>{ const gs=[...m.querySelectorAll('.mG:checked')].map(x=>+x.value); if(!gs.length){closeModal();return;} if(entry && gs.some(g=>S.year-g+1!==entry)){toast('입학연도와 대상 학년이 다릅니다. 해당 입학생의 학년만 선택하세요.');return;}
-        applyPyeonje(p.entries,gs); gs.forEach(g=>{S.pyeonjeMeta[g]=file.name+(entry?` (${entry} 교육과정)`:'');if(entry)cgCohortFromState(g,true);}); closeModal(); commit(); toast('편제표를 반영하고 입학연도별 교육과정을 갱신했어요'); }; });
-  }catch(err){ toast('편제표 읽기 오류: '+err.message); }
+      m=>{ m.querySelector('#mOk').onclick=()=>{ const gs=[...m.querySelectorAll('.mG:checked')].map(x=>+x.value); if(!gs.length){closeModal();return;} if(entry && gs.some(g=>S.year-g+1!==entry)){toast('이 편제표는 입학연도가 맞는 학년에만 넣을 수 있어요.');return;}
+        applyPyeonje(p.entries,gs); gs.forEach(g=>{S.pyeonjeMeta[g]=file.name+(entry?` (${entry} 교육과정)`:'');if(entry)cgCohortFromState(g,true);}); closeModal(); commit(); toast(`${gs.join('·')}학년 편제표를 넣었어요`); }; });
+  }catch(err){ toast('편제표를 읽지 못했어요: '+err.message); }
 }
 
 function handleJsonFile(file){
@@ -1907,7 +1920,7 @@ function handleJsonFile(file){
         if(!CG_INDEX.years.includes(y))CG_INDEX.years.push(y);
         CG_INDEX.years.sort((a,b)=>b-a);CG_INDEX.activeYear=y;cgWrite(CG_INDEX_KEY,CG_INDEX);
         S=migrate(imported);lastSnapshotStr=JSON.stringify(S);UNDO_STACK.length=0;REDO_STACK.length=0;
-        UI.tab='years';render();toast(`${y}학년도 개별 작업 파일 복원 완료`);
+        UI.tab='year';render();toast(`${y}학년도 개별 작업 파일 복원 완료`);
       });
     }catch(e){toast('불러오기 실패: '+e.message);}
   };fr.readAsText(file);
@@ -1938,7 +1951,7 @@ function openAddSubject(){
   openModal(`<h3>+ 과목 직접 추가</h3>
    <div class="row">학년 <select id="aG"><option ${UI.matrixGrade===1?'selected':''}>1</option><option ${UI.matrixGrade===2?'selected':''}>2</option><option ${UI.matrixGrade===3?'selected':''}>3</option></select>
    학기 <select id="aS"><option ${UI.matrixSem===1?'selected':''}>1</option><option ${UI.matrixSem===2?'selected':''}>2</option></select>
-   과목명 <input type="text" id="aN" style="width:160px"> 전공 <select id="aM">${MAJOR_IDS.map(m=>`<option>${m}</option>`).join('')}</select> 학점 <input type="number" id="aC" value="3" class="w40"> 분반 수 <input type="number" id="aK" value="1" class="w40"></div>
+   과목명 <input type="text" id="aN" style="width:160px"> 전공 <select id="aM">${majorOptions('')}</select> 학점 <input type="number" id="aC" value="3" class="w40"> 분반 수 <input type="number" id="aK" value="1" class="w40"></div>
    <div class="row" style="margin-top:12px"><button class="btn pri lg" id="mOk">추가하기</button><button class="btn lg" id="mCancel">취소</button></div>`,
    m=>{ m.querySelector('#mOk').onclick=()=>{ const n=m.querySelector('#aN').value.trim(); if(!n) return; const k=Math.max(1,parseInt(m.querySelector('#aK').value)||1);
      const g=+m.querySelector('#aG').value, sem=+m.querySelector('#aS').value;
@@ -1995,7 +2008,7 @@ function printSummaryHTML(sem){
     } else { const list=b.list||displayMajors(); rows+=`<tr class="${b.type==='group'?'grp':'tot'}"><td>${esc(b.name)}</td>${[3,2,1].map(g=>`<td colspan="5"></td><td>${list.reduce((t,m)=>t+majorGradeHours(m,sem,g),0)}</td>`).join('')}<td>${b.st.subj}</td><td>${cgFmtNeed(cgNeededGroup(list,sem))}</td>${items.map(it=>`<td>${list.reduce((t,m)=>t+num(((S.chang.alloc[sem]||{})[m]||{})[it.id]),0)||''}</td>`).join('')}<td>${b.st.ch}</td><td>${b.st.total}</td><td>${b.st.tutor||''}</td><td>${fmt1(b.st.avg)}</td></tr>`; }
   });
   return `<div class="top"><div></div>${signTable()}</div><h1>${S.year}학년도 ${sem}학기 교과 수업시수 배당표</h1>
-   <table class="sm"><thead><tr><th rowspan="2">교과</th>${[3,2,1].map(g=>`<th colspan="6">${g}학년</th>`).join('')}<th rowspan="2">교과<br>계</th><th rowspan="2">필요정원</th><th colspan="${items.length+1}">창체 및 교과외</th><th rowspan="2">총계</th><th rowspan="2">강사</th><th rowspan="2">평균</th></tr>
+   <table class="sm"><thead><tr><th rowspan="2">교과</th>${[3,2,1].map(g=>`<th colspan="6">${g}학년</th>`).join('')}<th rowspan="2">교과<br>계</th><th rowspan="2">필요정원</th><th colspan="${items.length+1}">창체·부장 등</th><th rowspan="2">총계</th><th rowspan="2">강사</th><th rowspan="2">평균</th></tr>
    <tr>${[3,2,1].map(()=>'<th>과목</th><th>일반</th><th>과중</th><th>학점</th><th>시수</th><th>소계</th>').join('')}${items.map(it=>`<th>${esc(it.name)}</th>`).join('')}<th>계</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 function printCompareHTML(){
@@ -2028,7 +2041,7 @@ function exportXlsx(){
   [1,2].forEach(sem=>{
     const {items, blocks} = summaryModel(sem); const aoa=[]; const merges=[];
     aoa.push([`${S.year}학년도 ${sem}학기 교과 수업시수 배당표`]);
-    const h1=['교과']; [3,2,1].forEach(g=>h1.push(g+'학년','','','','','')); h1.push('교과 계','필요정원','창체 및 교과외',...Array(items.length).fill(''),'총계','강사','평균');
+    const h1=['교과']; [3,2,1].forEach(g=>h1.push(g+'학년','','','','','')); h1.push('교과 계','필요정원','창체·부장 등',...Array(items.length).fill(''),'총계','강사','평균');
     const h2=['']; [3,2,1].forEach(()=>h2.push('과목','일반','과중','학점','시수','소계')); h2.push('','',...items.map(it=>it.name),'창체 계','','','');
     aoa.push(h1,h2);
     merges.push({s:{r:1,c:0},e:{r:2,c:0}}); [0,1,2].forEach(k=>merges.push({s:{r:1,c:1+k*6},e:{r:1,c:6+k*6}}));
@@ -2118,7 +2131,7 @@ function exportXlsx(){
     rows.push([],['통합 교과 배분 내역'],['학기','공통 영역','담당 전공','배정 시수','공통 영역 전체 시수','미배정 차이']);
     [1,2].forEach(sem=>{cgSharedSources(sem).forEach(source=>{const total=majorHours(source,sem),left=total-cgSharedAssigned(source,sem);usedMajors().filter(m=>!isShared(m)).forEach(m=>{const n=cgSharedAllocated(source,m,sem);if(n)rows.push([sem,source,m,n,total,left]);});if(!cgSharedAssigned(source,sem))rows.push([sem,source,'미배정',0,total,left]);});});
     const ws=XLSX.utils.aoa_to_sheet(rows);ws['!cols']=[{wch:20},...Array(6).fill({wch:22})]; XLSX.utils.book_append_sheet(wb,ws,'평균시수_배분검증'); }
-  { const items=cgExtraItems(); const majors=displayMajors(); const aoa=[['창체 및 교과외 배정 (온라인 포함)']];
+  { const items=cgExtraItems(); const majors=displayMajors(); const aoa=[['창체·부장 등 전공별 배정']];
     [1,2].forEach(sem=>{ aoa.push([],[`${sem}학기`],['전공',...items.map(it=>`${it.name}(${num(it['need'+sem])})`),'계']);
       majors.forEach(m=>{ aoa.push([m,...items.map(it=>cgItemAllocated(it,m,sem)||null),changOf(m,sem)||null]); });
       aoa.push(['계',...items.map(it=>majors.reduce((t,m)=>t+cgItemAllocated(it,m,sem),0)),majors.reduce((t,m)=>t+changOf(m,sem),0)]); });
@@ -2141,7 +2154,7 @@ function exportXlsx(){
   lastSnapshotStr = JSON.stringify(S);
   updateUndoUI();
   render();
-  setSaveState('로컬 저장 · 자동 동기화 없음');
+  setSaveState('✓ 저장됨');
 })();
 
 
@@ -2157,7 +2170,7 @@ window.CGBridge=Object.freeze({
     }
     return {format:'cleargrid-portfolio-v1',activeYear:S.year,workspaces,cohorts:CG_COHORTS||{}};
   },
-  importPortfolio(obj){
+  importPortfolio(obj, opts){
     if(!obj||obj.format!=='cleargrid-portfolio-v1'||!obj.workspaces||!Object.keys(obj.workspaces).length)throw Error('클라우드 백업 형식 오류');
     const years=Object.keys(obj.workspaces).map(Number).filter(cgValidYear).sort((a,b)=>b-a);
     if(!years.length||years.length!==Object.keys(obj.workspaces).length)throw Error('학년도 형식 오류');
@@ -2173,7 +2186,7 @@ window.CGBridge=Object.freeze({
       CG_COHORTS=obj.cohorts||{};CG_INDEX=idx;
       cgPendingAssign=null;S=migrate(cgYearInfo(target));
       lastSnapshotStr=JSON.stringify(S);UNDO_STACK.length=0;REDO_STACK.length=0;
-      UI.tab='years';render();setSaveState('클라우드 자료 불러옴 · 로컬에도 저장됨');
+      if(!(opts&&opts.keepView))UI.tab='year';render();setSaveState('✓ 최신 자료를 불러왔어요');
     }catch(err){
       keys.forEach(k=>{try{if(before[k]===null)window.CGStore.removeRaw(k);else window.CGStore.setRaw(k,before[k]);}catch(e){}});
       throw err;

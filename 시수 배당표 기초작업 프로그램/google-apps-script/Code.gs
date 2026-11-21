@@ -1,4 +1,7 @@
 /**
+ * 수업시수배당표 6.5 Google Apps Script 저장소 (Netlify 함수를 통해서만 호출됨)
+ * 6.5 변경: 저장한 선생님 이름 기록, 자동 저장에 맞춰 오래된 저장본 정리(최근 CG_KEEP_REVISIONS개만 보관),
+ *           읽기도 잠금 안에서 처리.
  * Clear Grid 6.4 Google Apps Script backend.
  * In Apps Script Project settings > Script properties configure:
  * SHEET_ID : target spreadsheet ID
@@ -9,6 +12,8 @@
  */
 var CG_PAYLOAD_CHUNK = 30000;
 var CG_MAX_JSON_CHARS = 1800000;
+var CG_KEEP_REVISIONS = 40;   // 자동 저장본은 최근 40개만 남김
+var CG_PRUNE_MIN_ROWS = 20;   // 지울 줄이 20줄 이상 쌓였을 때 한꺼번에 정리
 var CG_SHEETS = {
   HEAD:'CG_Head', PAYLOAD:'CG_Payload', LOG:'CG_History'
 };
@@ -105,6 +110,15 @@ function cgSave_(request, actor){
     for(var i=0;i<count;i++)rows.push([next,i+1,encoded.slice(i*CG_PAYLOAD_CHUNK,(i+1)*CG_PAYLOAD_CHUNK)]);
     payloadSh.getRange(start,1,rows.length,3).setValues(rows);
     SpreadsheetApp.flush(); // payload durable before committing the head pointer
+    // 6.5: 오래된 저장본 정리. 저장본은 위에서부터 오래된 순서로 쌓이므로 앞쪽 줄만 지운다.
+    try{
+      var keepFrom=next-CG_KEEP_REVISIONS+1, oldRows=start-2;
+      if(oldRows>=CG_PRUNE_MIN_ROWS){
+        var revs=payloadSh.getRange(2,1,oldRows,1).getValues(), k=0;
+        while(k<revs.length && Number(revs[k][0])<keepFrom)k++;
+        if(k>=CG_PRUNE_MIN_ROWS){ payloadSh.deleteRows(2,k); start-=k; SpreadsheetApp.flush(); }
+      }
+    }catch(pruneError){ /* 정리에 실패해도 저장은 계속한다 */ }
     var at=new Date().toISOString();
     var hsh=cgSheet_(CG_SHEETS.HEAD,['key','revision','updatedAt','actor','payloadRow','chunkCount']);
     hsh.getRange(2,1,1,6).setValues([['portfolio',next,at,actor,start,count]]);
@@ -131,9 +145,15 @@ function doPost(e){
     var input=JSON.parse(raw);
     var actor=cgAuth_(input.token);
     if(!actor)return cgResponse_({ok:false,error:'UNAUTHORIZED'});
+    // 6.5: Netlify가 넘겨준 선생님 이름(선택 입력)을 저장 기록에 남긴다.
+    var editor=String(input.editor||'').replace(/[\u0000-\u001f<>"'`\\]/g,'').trim().slice(0,20);
+    if(editor)actor=editor;
     if(input.action==='head')return cgResponse_({ok:true,head:cgHead_(),actor:actor});
     if(input.action==='read'){
-      var h=cgHead_();return cgResponse_({ok:true,head:h,data:cgRead_(h),actor:actor});
+      var rl=LockService.getScriptLock();
+      if(!rl.tryLock(20000))return cgResponse_({ok:false,error:'BUSY'});
+      try{ var h=cgHead_();return cgResponse_({ok:true,head:h,data:cgRead_(h),actor:actor}); }
+      finally{ rl.releaseLock(); }
     }
     if(input.action==='history')return cgResponse_({ok:true,head:cgHead_(),history:cgHistory_(),actor:actor});
     if(input.action==='save')return cgResponse_(cgSave_(input,actor));

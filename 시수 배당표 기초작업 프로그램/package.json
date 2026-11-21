@@ -1,6 +1,6 @@
 {
   "name": "cleargrid-school-sync",
-  "version": "6.4.0",
+  "version": "6.5.0",
   "private": true,
   "type": "module",
   "description": "Clear Grid education-hour dashboard with GitHub-Netlify deployment and Google Apps Script synchronization",

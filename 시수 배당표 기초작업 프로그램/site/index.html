@@ -5,12 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex,nofollow">
 <meta name="description" content="학년도별 교육과정 및 수업시수 관리 로컬 데이터 시제품">
-<title>Clear Grid 6.4 · GitHub / Netlify / Google 동기화</title>
+<title>방산고 수업시수배당표</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@400;500;600;700;800&family=Noto+Sans+KR:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<link rel="stylesheet" href="./assets/styles.css">
-<link rel="stylesheet" href="./assets/cloud.css">
+<link rel="stylesheet" href="./assets/styles.css?v=6.5.3">
+<link rel="stylesheet" href="./assets/cloud.css?v=6.5.3">
+<link rel="stylesheet" href="./assets/steps.css?v=6.5.3">
 </head>
 <body>
 <header>
@@ -20,13 +21,10 @@
       <span id="saveState">불러오는 중…</span>
     </div>
     <div class="top-actions noprint">
-      <button class="btn" id="cgCloudButton" type="button">☁ Google 동기화</button>
-      <button class="btn cg-header-year-button" data-gact="years" title="학년도 선택·관리">🗓 학년도 관리</button>
-      <button class="btn" id="btnUndo" data-gact="undo" title="이전 행동 실행취소 (Ctrl+Z)" disabled>↩ 실행취소 <span id="undoCnt"></span></button>
-      <button class="btn" id="btnRedo" data-gact="redo" title="다시 실행 (Ctrl+Y)" disabled>↪ 다시실행</button>
-      <button class="btn act-upload" data-gact="uploadAssign">📂 리로스쿨 배정 변경 검토</button>
-      <button class="btn act-upload" data-gact="uploadPyeonje">📋 편제표 다시 올리기</button>
-      <button class="btn act-excel" data-gact="exportXlsx">📊 엑셀(.xlsx) 내보내기</button>
+      <button class="btn" id="btnUndo" data-gact="undo" title="방금 한 일 되돌리기 (Ctrl+Z)" disabled>↩ 되돌리기 <span id="undoCnt"></span></button>
+      <button class="btn" id="btnRedo" data-gact="redo" title="되돌린 일 다시 하기 (Ctrl+Y)" disabled>↪ 다시 하기</button>
+      <button class="btn" id="cgCloudButton" type="button" hidden>☁ 저장 연결</button>
+      <button class="btn" data-gact="settings" title="결재란, 다른 컴퓨터로 옮기기, 학년도 기록">⚙ 설정</button>
     </div>
   </div>
   <nav id="tabs"></nav>
@@ -40,15 +38,16 @@
 <div class="toast" id="toast"></div>
 <div class="cg-cloud-overlay" id="cgCloudOverlay" hidden>
   <section class="cg-cloud-dialog" role="dialog" aria-modal="true" aria-labelledby="cgCloudTitle">
-    <div class="cg-cloud-heading"><div><h2 id="cgCloudTitle">☁ Google 동기화</h2><p>담당자 2명이 안전하게 같은 학년도 자료를 공유합니다.</p></div>
+    <div class="cg-cloud-heading"><div><h2 id="cgCloudTitle">여러 컴퓨터에서 함께 쓰기</h2><p></p></div>
       <button class="btn sm" id="cgCloudDismiss" type="button" aria-label="닫기">닫기 ✕</button></div>
     <div id="cgCloudBody"></div>
-    <div id="cgCloudStatus" role="status" aria-live="polite">연결 전 · 로컬 자료는 유지됩니다.</div>
+    <div id="cgCloudStatus" role="status" aria-live="polite"></div>
   </section>
 </div>
-<script src="./assets/bootstrap.js"></script>
-<script src="./assets/storage.js"></script>
-<script src="./assets/app.js"></script>
-<script src="./assets/cloud.js"></script>
+<script src="./assets/bootstrap.js?v=6.5.3"></script>
+<script src="./assets/storage.js?v=6.5.3"></script>
+<script src="./assets/steps.js?v=6.5.3"></script>
+<script src="./assets/app.js?v=6.5.3"></script>
+<script src="./assets/cloud.js?v=6.5.3"></script>
 </body>
 </html>
