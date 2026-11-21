@@ -338,6 +338,7 @@ function cgItemAllocated(item,major,sem){
 }
 function cgTeacherItem(t,item,sem){return num((((t.chang||{})[sem])||{})[item.id]);}
 function cgChangNeed(sem){return cgExtraItems().reduce((t,it)=>t+num(it['need'+sem]),0);}
+function cgNoMajorHours(sem){return majorHours(NOMAJOR,sem);} // 6.5.5: 교양·온라인 등 전공없음 과목 — 학교 전체 시수에는 넣고 전공 정원에는 넣지 않음
 function cgChangAssigned(sem){
   return usedMajors().filter(m=>!isShared(m)).reduce((t,m)=>t+changOf(m,sem),0);
 }
@@ -375,11 +376,11 @@ function cgQuotaInfo(){
 }
 function cgBreakdown(sem){
   const curriculum=displayMajors().filter(m=>m!==NOMAJOR).reduce((t,m)=>t+majorHours(m,sem),0); // 온라인 개설시수는 창체·교과외 열로 이동
-  const extra=cgChangNeed(sem);
+  const extra=cgChangNeed(sem)+cgNoMajorHours(sem);
   const tutor=0;
   const total=curriculum+extra-tutor;
   const allocated=usedMajors().reduce((t,m)=>t+cgEffectiveHours(m,sem),0);
-  return {curriculum,extra,tutor,total,allocated,gap:total-allocated,
+  return {curriculum,extra,nomajor:cgNoMajorHours(sem),tutor,total,allocated,gap:total-cgNoMajorHours(sem)-allocated,
     changAllocated:cgChangAssigned(sem),changGap:extra-cgChangAssigned(sem),
     share:cgShareSummary(sem)};
 }
@@ -1363,10 +1364,15 @@ function openSecEditModal(subId){
 }
 
 /* ----- 3. 총괄 배당표 (한 화면 자동 맞춤 summary-compact 적용) ----- */
-function summaryModel(sem){
-  const items = cgExtraItems();
+/* 6.5.6: 결과 화면 '전공 외 과목 출력' 체크 — 끄면 전공 과목만, 켜면 전공없음(전공 외 과목)·부장·창체 등 모두 */
+const showExtra = () => { if(UI.showExtra==null){ try{ UI.showExtra=localStorage.getItem('cg-show-extra')==='1'; }catch(e){ UI.showExtra=false; } } return !!UI.showExtra; }; // 보기 설정이라 이 컴퓨터에만 기억
+const resultMajors = () => displayMajors().filter(m=>showExtra() || m!==NOMAJOR);
+const resultLabel = m => m===NOMAJOR ? '전공 외 과목' : m;
+function summaryModel(sem, full){
+  const X = full || showExtra();
+  const items = X ? cgExtraItems() : [];
   const blocks = [];
-  const majors = displayMajors();
+  const majors = full ? displayMajors() : resultMajors();
   majors.forEach((m,idx)=>{
     const per = {};
     [3,2,1].forEach(g=>{ per[g] = S.subjects.filter(s=>s.major===m&&s.sem===sem&&s.grade===g&&s.sections.length>0).sort((a,b)=>(a.kind==='선택')-(b.kind==='선택')||natCmp(a.name,b.name)); });
@@ -1380,16 +1386,16 @@ function summaryModel(sem){
 }
 
 function buildSummaryTableHTML(sem){
-  const {items, blocks} = summaryModel(sem);
-  const head1 = `<tr><th rowspan="2">전공</th>${[3,2,1].map(g=>`<th colspan="6">${g}학년</th>`).join('')}<th rowspan="2">교과<br>계</th><th rowspan="2" title="실제 배정된 창체·부장·온라인·통합 시수 포함">필요<br>정원</th><th colspan="${items.length+1}">창체·부장 등</th><th rowspan="2">총계</th><th rowspan="2">평균</th></tr>`;
-  const head2 = `<tr>${[3,2,1].map(()=>`<th>과목</th><th>일반</th><th>과중</th><th>학점</th><th>시수</th><th>소계</th>`).join('')}${items.map(it=>`<th>${esc(it.name)}<br><span class="muted">(${num(it['need'+sem])})</span></th>`).join('')}<th>창체계</th></tr>`;
+  const {items, blocks} = summaryModel(sem); const X=showExtra();
+  const head1 = `<tr><th rowspan="2">전공</th>${[3,2,1].map(g=>`<th colspan="6">${g}학년</th>`).join('')}<th rowspan="2">교과<br>계</th><th rowspan="2" title="부장·창체 등 포함한 전체 시수 기준">필요<br>정원</th>${X?`<th colspan="${items.length+1}">부장·창체 등</th><th rowspan="2">총계</th>`:''}<th rowspan="2">${X?'평균':'교과<br>평균'}</th></tr>`;
+  const head2 = `<tr>${[3,2,1].map(()=>`<th>과목</th><th>일반</th><th>과중</th><th>학점</th><th>시수</th><th>소계</th>`).join('')}${items.map(it=>`<th>${esc(it.name)}<br><span class="muted">(${num(it['need'+sem])})</span></th>`).join('')}${X?'<th>창체계</th>':''}</tr>`;
   let body='';
   blocks.forEach(b=>{
     if (b.type==='major'){
       const al = {...((S.chang.alloc[sem]||{})[b.major]||{}),[ONLINE_ITEM_ID]:cgSharedAllocated('온라인',b.major,sem)};
       for(let i=0;i<b.n;i++){
         body += '<tr>';
-        if(i===0) body += `<td class="maj" rowspan="${b.n}">${esc(b.major)}<br><button class="link small noprint" style="font-size:11.5px" data-act="zoomMajor" data-m="${esc(b.major)}">🔍확대</button></td>`;
+        if(i===0) body += `<td class="maj" rowspan="${b.n}">${esc(resultLabel(b.major))}<br><button class="link small noprint" style="font-size:11.5px" data-act="zoomMajor" data-m="${esc(b.major)}">🔍확대</button></td>`;
         [3,2,1].forEach(g=>{
           const s = b.per[g][i];
           if (s){
@@ -1401,7 +1407,7 @@ function buildSummaryTableHTML(sem){
         if(i===0){
           body += `<td class="n sum strong" rowspan="${b.n}">${b.st.subj||''}</td><td class="n cg-need-value" rowspan="${b.n}">${cgFmtNeed(cgNeededMajor(b.major,sem))}</td>`;
           body += items.map(it=>`<td class="n" rowspan="${b.n}">${num(al[it.id])||''}</td>`).join('');
-          body += `<td class="n sum" rowspan="${b.n}">${b.st.ch||''}</td><td class="n sum strong" rowspan="${b.n}">${b.st.total||''}</td><td class="n strong" rowspan="${b.n}">${fmt1(b.st.avg)}</td>`;
+          body += X?`<td class="n sum" rowspan="${b.n}">${b.st.ch||''}</td><td class="n sum strong" rowspan="${b.n}">${b.st.total||''}</td><td class="n strong" rowspan="${b.n}">${fmt1(b.st.avg)}</td>`:`<td class="n strong" rowspan="${b.n}">${fmt1(b.st.avgSubj)}</td>`;
         }
         body += '</tr>';
       }
@@ -1409,14 +1415,14 @@ function buildSummaryTableHTML(sem){
       const cls = b.type==='group'?'grp':'tot';
       const chs = items.map(it=>{ const list=b.list||displayMajors(); return list.reduce((t,m)=>t+cgItemAllocated(it,m,sem),0); });
       const gH = g => (b.list||displayMajors()).reduce((t,m)=>t+majorGradeHours(m,sem,g),0);
-      body += `<tr class="${cls}"><td class="c">${esc(b.name)}</td>${[3,2,1].map(g=>`<td colspan="5"></td><td class="n">${gH(g)}</td>`).join('')}<td class="n">${b.st.subj}</td><td class="n cg-need-value">${cgFmtNeed(cgNeededGroup(b.list||displayMajors(),sem))}</td>${chs.map((v,i)=>{const need=num(items[i]['need'+sem]); const bad=b.type==='total'&&need&&v!==need; return `<td class="n" ${bad?'style="color:var(--bad)" title="필요 '+need+'"':''}>${v||''}</td>`;}).join('')}<td class="n">${b.st.ch}</td><td class="n">${b.st.total}</td><td class="n">${fmt1(b.st.avg)}</td></tr>`;
+      body += `<tr class="${cls}"><td class="c">${esc(b.name)}</td>${[3,2,1].map(g=>`<td colspan="5"></td><td class="n">${gH(g)}</td>`).join('')}<td class="n">${b.st.subj}</td><td class="n cg-need-value">${cgFmtNeed(cgNeededGroup(b.type==='total'?displayMajors():b.list,sem))}</td>${chs.map((v,i)=>{const need=num(items[i]['need'+sem]); const bad=b.type==='total'&&need&&v!==need; return `<td class="n" ${bad?'style="color:var(--bad)" title="필요 '+need+'"':''}>${v||''}</td>`;}).join('')}${X?`<td class="n">${b.st.ch}</td><td class="n">${b.st.total}</td><td class="n">${fmt1(b.st.avg)}</td>`:`<td class="n">${fmt1(b.st.avgSubj)}</td>`}</tr>`;
     }
   });
   return `<table class="t summary-compact"><thead>${head1}${head2}</thead><tbody>${body}</tbody></table>`;
 }
 
 function buildZoomSummaryHTML(){
-  const majors = displayMajors();
+  const majors = resultMajors();
   const targetMajors = UI.zoomMajor==='all' ? majors : majors.filter(m=>m===UI.zoomMajor || (GROUPS[UI.zoomMajor] && GROUPS[UI.zoomMajor].includes(m)));
   const cards = targetMajors.map(m=>{
     const st1 = majorStats(m,1), st2 = majorStats(m,2);
@@ -1468,8 +1474,9 @@ function buildZoomSummaryHTML(){
 
 /* 1·2학기 동시 보기: 같은 학년·전공·과목은 하나의 행으로 결합한다.
    과목이 한 학기에만 있으면 다른 학기는 —로 표시한다. */
-function bothSummaryModel(){
-  const majors=displayMajors(), out=[];
+function bothSummaryModel(full){
+  const X=full||showExtra(), majors=full?displayMajors():resultMajors(), out=[];
+  const hrs=(m,sem)=>majorHours(m,sem)+(X?changOf(m,sem):0);
   const rowOf=s=>{
     const sections=active(s)?s.sections.length:0;
     return {sections, credits:sections?num(s.credits):0, hours:hoursOf(s), exists:true};
@@ -1486,16 +1493,27 @@ function bothSummaryModel(){
     });
     const courseList=[...courses.values()].sort((a,b)=>b.grade-a.grade||natCmp(a.name,b.name));
     courseList.forEach(c=>out.push({type:'course',...c}));
-    const s1=majorHours(m,1),s2=majorHours(m,2);
+    if(X) cgExtraItems().forEach(it=>{ // 6.5.6: 전공에 나눠 준 부장·창체 등을 그 전공의 과목처럼 한 줄로
+      const h=[1,2].map(sem=>cgItemAllocated(it,m,sem));
+      if(h[0]||h[1]) out.push({type:'course',extra:true,major:m,grade:'',name:it.name,sem:{1:h[0]?{sections:null,credits:null,hours:h[0]}:null,2:h[1]?{sections:null,credits:null,hours:h[1]}:null}});
+    });
+    const s1=hrs(m,1),s2=hrs(m,2);
     grand[0]+=s1; grand[1]+=s2;
     out.push({type:'major',major:m,tot:[s1,s2]});
     const grp=groupOf(m), next=majors[i+1];
-    if(grp && groupOf(next)!==grp){const list=GROUPS[grp].filter(x=>majors.includes(x));out.push({type:'group',major:grp+' 계',tot:[1,2].map(sem=>list.reduce((a,mm)=>a+majorHours(mm,sem),0))});}
+    if(grp && groupOf(next)!==grp){const list=GROUPS[grp].filter(x=>majors.includes(x));out.push({type:'group',major:grp+' 계',tot:[1,2].map(sem=>list.reduce((a,mm)=>a+hrs(mm,sem),0))});}
   });
   out.push({type:'grand',major:'전체',tot:grand});
   return out;
 }
+function cgCurQuota(r){ // 6.5.5: 현정원
+  if(r.type==='major') return cap(r.major).quota??null;
+  if(r.type==='grand') return cgQuotaInfo().quota;
+  const list=GROUPS[r.major.replace(' 계','')]||[]; const v=list.filter(m=>cap(m).quota!=null&&cap(m).quota!=='');
+  return v.length?v.reduce((t,m)=>t+num(cap(m).quota),0):null;
+}
 function buildBothSummaryHTML(){
+  const closed=UI.bothClosed=UI.bothClosed||{};
   const td=(v,cls='')=>`<td class="c ${cls}">${v==null||v===''?'—':v}</td>`;
   const out=bothSummaryModel().map(r=>{
     if(r.type==='course'){
@@ -1504,13 +1522,14 @@ function buildBothSummaryHTML(){
         return s?[td(s.sections,'cg-sem'+sem),td(s.credits,'cg-sem'+sem),td(s.hours,'cg-net cg-sem'+sem)]:[td(null,'cg-grey'),td(null,'cg-grey'),td(null,'cg-grey')];
       });
       const year=(Number(r.sem[1]?.hours||0)+Number(r.sem[2]?.hours||0))/2;
-      return `<tr><td class="c">${esc(r.major)}</td><td class="c">${r.grade}</td><td class="cg-course-name" title="${esc(r.name)}">${esc(r.name)}</td>${info.flat().join('')}<td class="c cg-yearavg">${fmt1(year)}</td><td class="c cg-grey">—</td></tr>`;
+      return `<tr data-bothmaj="${esc(r.major)}" ${closed[r.major]?'hidden':''}><td class="c">${esc(resultLabel(r.major))}</td><td class="c">${r.extra?'—':r.grade}</td><td class="cg-course-name${r.extra?' cg-extra-row':''}" title="${esc(r.name)}">${esc(r.name)}${r.extra?' <span class="muted small">(배정)</span>':''}</td>${info.flat().join('')}<td class="c cg-yearavg">${fmt1(year)}</td><td class="c cg-grey">—</td><td class="c cg-grey">—</td></tr>`;
     }
     const cls=r.type==='grand'?'cg-grand-total':r.type==='group'?'cg-group-total':'cg-major-total';
-    return `<tr class="${cls}"><td>${esc(r.major)}</td><td></td><td>${r.type==='major'?'전공 소계':'합계'}</td><td></td><td></td>${td(r.tot[0],'cg-net')}<td></td><td></td>${td(r.tot[1],'cg-net')}${td(fmt1((r.tot[0]+r.tot[1])/2),'cg-yearavg')}${td(cgFmtNeed(r.type==='major'?cgNeededMajor(r.major,null):cgNeededGroup(r.type==='grand'?displayMajors():GROUPS[r.major.replace(' 계','')]||[],null)),'cg-need-value')}</tr>`;
+    const tog=r.type==='major'?`<button class="cg-fold" data-act="bothToggle" data-m="${esc(r.major)}" aria-expanded="${closed[r.major]?'false':'true'}" title="과목 ${closed[r.major]?'펼치기':'접기'}">${closed[r.major]?'▸':'▾'}</button> `:'';
+    return `<tr class="${cls}"><td>${tog}${esc(resultLabel(r.major))}</td><td></td><td>${r.type==='major'?'전공 소계':'합계'}</td><td></td><td></td>${td(r.tot[0],'cg-net')}<td></td><td></td>${td(r.tot[1],'cg-net')}${td(fmt1((r.tot[0]+r.tot[1])/2),'cg-yearavg')}${td(cgFmtNeed(r.type==='major'?cgNeededMajor(r.major,null):cgNeededGroup(r.type==='grand'?displayMajors():GROUPS[r.major.replace(' 계','')]||[],null)),'cg-need-value')}${td(cgCurQuota(r),'cg-cur-quota')}</tr>`;
   }).join('');
-  return `<div class="cg-both-head"><div><h3 style="margin:0 0 4px">1·2학기 과목별 한 줄 비교</h3><p class="cg-help">과목별 분반 이름·인원은 생략했습니다. '전공없음' 과목은 맨 아래 전공없음 줄에 따로 모여 있어요. <b>반 수</b>는 개설 분반 수, <b>단위 시수</b>는 분반당 시수, <b>합</b>은 반 수 × 단위 시수입니다.</p></div></div>
-  <div class="tablewrap cg-both-scroll"><table class="t cg-both-summary"><thead><tr><th rowspan="2">전공</th><th rowspan="2">학년</th><th rowspan="2">과목명</th><th colspan="3">1학기</th><th colspan="3">2학기</th><th rowspan="2">연간<br>평균 합</th><th rowspan="2">전공별<br>필요정원</th></tr><tr><th>반 수</th><th>단위 시수</th><th>합</th><th>반 수</th><th>단위 시수</th><th>합</th></tr></thead><tbody>${out}</tbody></table></div>`;
+  return `<div class="cg-both-head"><div><h3 style="margin:0 0 4px">1·2학기 과목별 한 줄 비교</h3><p class="cg-help">과목별 분반 이름·인원은 생략했습니다. '전공없음' 과목은 맨 아래 전공없음 줄에 따로 모여 있어요. <b>반 수</b>는 개설 분반 수, <b>단위 시수</b>는 분반당 시수, <b>합</b>은 반 수 × 단위 시수입니다. 전공 이름 앞 ▾를 누르면 과목을 접고 펼 수 있어요.</p></div><div class="row noprint"><button class="btn sm" data-act="bothFoldAll">모두 접기</button><button class="btn sm" data-act="bothOpenAll">모두 펴기</button></div></div>
+  <div class="tablewrap cg-both-scroll"><table class="t cg-both-summary"><thead><tr><th rowspan="2">전공</th><th rowspan="2">학년</th><th rowspan="2">과목명</th><th colspan="3">1학기</th><th colspan="3">2학기</th><th rowspan="2">연간<br>평균 합</th><th rowspan="2">전공별<br>필요정원</th><th rowspan="2">현정원</th></tr><tr><th>반 수</th><th>단위 시수</th><th>합</th><th>반 수</th><th>단위 시수</th><th>합</th></tr></thead><tbody>${out}</tbody></table></div>`;
 }
 
 function vSummary(){
@@ -1535,6 +1554,7 @@ function vSummary(){
       </span>
       <span class="muted small">혼합 = 일반·과중 학생이 섞인 분반</span>
       <span style="flex:1"></span>
+      <label class="cg-extra-toggle" title="켜면 전공 외 과목(전공없음)과 전공별로 나눠 준 부장·창체(자치·적응)·직업반 등까지 모두 보여요"><input type="checkbox" data-showextra="1" ${showExtra()?'checked':''}> 전공 외 과목 출력</label>
       ${printBtn('printSummary')}
     </div>
     ${content}
@@ -1546,7 +1566,7 @@ const inFrame = () => { try{ return window.self!==window.top; }catch(e){ return 
 
 /* ----- 4. 1·2학기 비교 탭 ----- */
 function compareRows(){
-  const majors = displayMajors(); const rows=[];
+  const majors = resultMajors(); const rows=[];
   majors.forEach((m,idx)=>{
     rows.push({name:m, cls:'', s1:majorStats(m,1), s2:majorStats(m,2), indent:!!groupOf(m)});
     const g=groupOf(m); if(g && groupOf(majors[idx+1])!==g){ const list=GROUPS[g].filter(x=>majors.includes(x)); rows.push({name:g+' 계', cls:'grp', s1:sumStats(list,1), s2:sumStats(list,2)}); }
@@ -1564,7 +1584,7 @@ function vCompare(){
       <td class="n">${r.s2.subj}</td><td class="n">${r.s2.ch||''}</td><td class="n strong">${fmt1(r.s2.avg)}</td>
       <td class="n" style="${d>0?'color:var(--bad)':d<0?'color:var(--ok)':''}">${d==null?'':(d>0?'+':'')+fmt1(d)}</td><td class="n strong">${fmt1(yr)}</td></tr>`;
   }).join('');
-  return `<div class="panel"><div class="row" style="margin-bottom:10px"><h2 style="margin:0">전공별 1·2학기 시수 비교</h2><span class="muted small">평균 = (교과 + 창체·부장 등) ÷ 정원 · 필요정원 = 그 전공 시수 ÷ 교사 1인 평균 시수</span><span style="flex:1"></span>${printBtn('printCompare')}</div>
+  return `<div class="panel"><div class="row" style="margin-bottom:10px"><h2 style="margin:0">전공별 1·2학기 시수 비교</h2><span class="muted small">평균 = (교과 + 창체·부장 등) ÷ 정원 · 필요정원 = 그 전공 시수 ÷ 교사 1인 평균 전체 시수</span><span style="flex:1"></span>${printBtn('printCompare')}</div>
   <div class="tablewrap"><table class="t"><thead>
    <tr><th rowspan="2">교과(전공)</th><th rowspan="2">필요정원<br><small>(연간)</small></th><th colspan="3">1학기</th><th colspan="3">2학기</th><th rowspan="2">증감(2−1)</th><th rowspan="2">연간 평균</th></tr>
    <tr><th>교과</th><th>창체</th><th>평균</th><th>교과</th><th>창체</th><th>평균</th></tr></thead><tbody>${body}</tbody></table></div></div>`;
@@ -1607,14 +1627,15 @@ function vChang(){
       <div class="cg-school-quota">
         <div class="cg-quota-field"><label for="cgSchoolQuota">학교 전체 교사 정원</label><input id="cgSchoolQuota" data-schoolquota="1" type="number" min="1" step="1" placeholder="정원 확정 후 입력" value="${S.schoolQuota??''}"><small>비워 두면 전공별 정원을 더해요</small></div>
         <div class="cg-quota-metric"><span>교과 전체 시수 (1·2학기 평균)</span><strong>${fmt1((br1.curriculum+br2.curriculum)/2)}</strong><small>통합 포함 · 전공없음 제외</small></div>
-        <div class="cg-quota-metric"><span>교과 + 창체·부장 등 (1·2학기 평균)</span><strong>${fmt1((br1.total+br2.total)/2)}</strong><small>교사 1인 평균의 기준</small></div>
-        <div class="cg-quota-metric"><span>교사 1인 평균 시수</span><strong>${schoolAvg==null?'—':fmt1(schoolAvg)}</strong><small>${schoolAvg==null?'정원을 넣으면 계산돼요':'시수/명'}</small></div>
+        <div class="cg-quota-metric"><span>교과 + 부장, 창체(자치·적응), 직업반, 교양, 온라인 (1·2학기 평균)</span><strong>${fmt1((br1.total+br2.total)/2)}</strong><small>교사 1인 평균 전체 시수의 기준</small></div>
+        <div class="cg-quota-metric"><span>교사 1인 평균 교과 시수</span><strong>${cQ.quota?fmt1((br1.curriculum+br2.curriculum)/2/cQ.quota):'—'}</strong><small>${cQ.quota?'교과 전체 시수 ÷ 정원':'정원을 넣으면 계산돼요'}</small></div>
+        <div class="cg-quota-metric"><span>교사 1인 평균 전체 시수</span><strong>${schoolAvg==null?'—':fmt1(schoolAvg)}</strong><small>${schoolAvg==null?'정원을 넣으면 계산돼요':'전체 시수 ÷ 정원'}</small></div>
       </div>
-      <div class="tablewrap cg-school-breakdown"><table class="t"><thead><tr><th>학기</th><th>교과<br><small>통합 포함</small></th><th>창체·부장 등</th><th>교과 + 창체·부장 등</th><th>전공에 나눈 시수</th><th>남은 시수</th></tr></thead><tbody>
+      <div class="tablewrap cg-school-breakdown"><table class="t"><thead><tr><th>학기</th><th>교과<br><small>통합 포함</small></th><th>부장, 창체(자치·적응),<br>직업반, 교양, 온라인</th><th>합계</th><th>전공에 나눈 시수</th><th>남은 시수</th></tr></thead><tbody>
         ${[1,2].map(n=>{const x=cgBreakdown(n);return `<tr><td class="c"><b>${n}학기</b></td><td class="n">${x.curriculum}</td><td class="n">+ ${x.extra}</td><td class="n strong">${x.total}</td><td class="n">${x.allocated}</td><td class="n"><span class="pill ${x.gap===0?'ok':x.gap>0?'warn':'bad'}">${x.gap===0?'다 나눔':x.gap>0?x.gap+'시수 남음':(-x.gap)+'시수 넘침'}</span></td></tr>`;}).join('')}
       </tbody></table></div>
-      <details class="cg-calc"><summary>계산 방법 보기</summary><p class="cg-help"><b>교사 1인 평균 시수</b> = (교과 시수 + 창체·부장 등)의 1·2학기 평균 ÷ 교사 정원<br>
-      <b>전공별 필요정원</b> = (그 전공의 교과 시수 + 그 전공이 나눠 받은 창체·부장 시수)의 1·2학기 평균 ÷ 교사 1인 평균 시수<br>
+      <details class="cg-calc"><summary>계산 방법 보기</summary><p class="cg-help"><b>교사 1인 평균 교과 시수</b> = 교과 전체 시수의 1·2학기 평균 ÷ 교사 정원<br><b>교사 1인 평균 전체 시수</b> = (교과 + 부장, 창체(자치·적응), 직업반, 교양, 온라인)의 1·2학기 평균 ÷ 교사 정원<br>
+      <b>전공별 필요정원</b> = (그 전공의 교과 시수 + 그 전공이 나눠 받은 창체·부장 시수)의 1·2학기 평균 ÷ 교사 1인 평균 전체 시수<br>
       <b>사회과·과학과 계</b> = (전공 시수 합 + 통합사회·통합과학 시수) ÷ 사회과·과학과 전체 인원 — 통합 과목은 전공별로 나누지 않아요.<br>'전공없음'(교양·온라인학교 포함) 과목은 정원 계산에서 빠져요. 시간강사는 정원 계산에 넣지 않고, 6단계 교사 명단에서 '시간강사'로 추가해 분반을 맡겨요. 지금 정원 기준: ${esc(cQ.source)}.</p></details>
       ${[1,2].some(n=>cgDuplicateWarnings(n))?`<div class="cg-balance-alert"><b>겹쳐서 계산될 뻔한 시수</b> · ${[1,2].map(n=>cgDuplicateWarnings(n)?`${n}학기: ${esc(cgDuplicateWarnings(n))}`:'').filter(Boolean).join(' / ')}</div>`:''}
     </div>
@@ -1622,9 +1643,9 @@ function vChang(){
       <div class="tablewrap"><table class="t"><thead><tr><th>전공</th><th>1학기<br>시수</th><th>2학기<br>시수</th><th>필요정원<br><small>(연간)</small></th><th>교사 정원(명)</th><th>메모</th></tr></thead><tbody>${capRows}
       <tr class="tot"><td>학교 전체</td><td class="n">${br1.total}</td><td class="n">${br2.total}</td><td class="n cg-need-value">${cgFmtNeed(cgNeededSchool(null))}</td><td class="n">${cQ.quota??'—'}</td><td></td></tr></tbody></table></div>
     </div>
-    <div class="panel"><h2>③ 창체·부장 등 필요 시수</h2>
+    <div class="panel"><h2>③ 부장, 창체(자치·적응), 직업반, 교양, 온라인 시수</h2>
       <p class="cg-help">학교 전체에서 맡아야 하는 시수예요. 예: 담임(자치) 30학급이면 30. 1학년 진로는 '진로' 전공 교과로 따로 계산돼요.</p>
-      <div class="tablewrap"><table class="t"><thead><tr><th>항목</th><th>1학기</th><th>2학기</th><th></th></tr></thead><tbody>${itemRows}</tbody></table></div>
+      <div class="tablewrap"><table class="t"><thead><tr><th>항목</th><th>1학기</th><th>2학기</th><th></th></tr></thead><tbody>${itemRows}<tr><td><b>교양·온라인</b><br><small class="muted">전공없음 과목 시수 · 3단계에서 자동</small></td><td class="c"><b>${cgNoMajorHours(1)}</b></td><td class="c"><b>${cgNoMajorHours(2)}</b></td><td></td></tr></tbody></table></div>
       <div class="row" style="margin-top:8px"><button class="btn pri sm" data-act="itemAdd">+ 항목 추가</button></div>
     </div>
     <div class="panel"><div class="row" style="margin-bottom:10px"><h2 style="margin:0">④ 창체·부장 시수를 전공별로 나누기</h2> ${semSeg('changSem')}
@@ -1660,14 +1681,14 @@ function vTeachers(){
       <td><button class="btn sm danger" data-act="tDel" data-id="${t.id}">삭제</button></td></tr>`;
   }).join('');
   const metric=(name,value,desc)=>`<div class="cg-load-metric"><span>${name}</span><strong>${value}</strong><small>${desc}</small></div>`;
-  const refName=avg!=null?'교사 1인 평균':'등록 교사 평균';
+  const refName=avg!=null?'교사 1인 평균 전체 시수':'등록 교사 평균';
   return `<div class="cg-teacher-page">
     <div class="panel"><div class="row cg-head-row"><div><h2 style="margin:0">교사 명단</h2><p class="cg-help">[여러 명 붙여넣기]로 한 번에 넣을 수 있어요. 교사마다 창체·부장 시수를 적으면, 5단계에서 [교사 탭에 적은 값으로 채우기]로 전공별 표에 옮길 수 있어요.</p></div><span style="flex:1"></span><button class="btn sm" data-act="tAdd">+ 교사 1명 추가</button><button class="btn sm" data-act="tAddLecturer">+ 시간강사 추가</button><button class="btn pri sm" data-act="tBulk">📋 여러 명 붙여넣기</button></div>
       ${S.teachers.length?`<div class="tablewrap"><table class="t"><thead><tr><th>구분</th><th>전공</th><th>이름</th><th>비고</th>${items.map(it=>`<th class="${it.id===ONLINE_ITEM_ID?'cg-online-col':''}">${esc(it.name)}</th>`).join('')}<th>교과</th><th>창체·부장 등</th><th>총시수</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`:'<div class="info">아직 교사가 없어요. [📋 여러 명 붙여넣기]를 눌러 <b>전공 이름</b>을 한 줄에 한 명씩 붙여 넣으세요. 예: 수학 김남훈</div>'}
     </div>
     <div class="panel"><div class="row cg-head-row"><div><h2 style="margin:0">교사별 시수 비교</h2><p class="cg-help">맡은 분반 시수와 창체·부장 등을 더해서 비교해요. 분반 배정이나 시수를 바꾸면 바로 바뀌어요.</p></div>${semSeg('teachSem')}<select data-ui="teachSort" aria-label="교사 표시 순서"><option value="major" ${UI.teachSort==='major'?'selected':''}>전공순</option><option value="low" ${UI.teachSort==='low'?'selected':''}>총시수 낮은 순</option><option value="high" ${UI.teachSort==='high'?'selected':''}>총시수 높은 순</option></select></div>
-      <div class="cg-load-metrics">${metric('등록된 교사',staff.length+'명',lecturers?`시간강사 ${lecturers}명은 따로`:'교사 명단 기준')}${metric('교사 1인 평균 시수',avg==null?'—':fmt1(avg),'5단계에서 정원을 넣으면 계산돼요')}${metric('등록 교사 평균',rosterAvg==null?'—':fmt1(rosterAvg),'지금 입력된 교사 기준')}</div>
-      ${roster.length?`<div class="tablewrap"><table class="t cg-load-table"><thead><tr><th>교사 · 전공</th><th>교과</th><th>창체·부장 등</th><th>총시수</th><th>${refName}과 차이</th><th style="width:30%">비교</th></tr></thead><tbody>${balanceRows}</tbody></table></div><p class="cg-help">${avg==null?'아직 교사 정원이 없어서 <b>등록된 교사들끼리의 평균</b>과 비교하고 있어요.':'교사 1인 평균 시수와 비교해요.'} 분반을 아직 안 맡은 교사는 교과 시수가 0으로 보여요.</p>`:'<div class="info">교사 명단을 넣으면 여기에서 교사별 시수를 비교할 수 있어요.</div>'}
+      <div class="cg-load-metrics">${metric('등록된 교사',staff.length+'명',lecturers?`시간강사 ${lecturers}명은 따로`:'교사 명단 기준')}${metric('교사 1인 평균 전체 시수',avg==null?'—':fmt1(avg),'5단계에서 정원을 넣으면 계산돼요')}${metric('등록 교사 평균',rosterAvg==null?'—':fmt1(rosterAvg),'지금 입력된 교사 기준')}</div>
+      ${roster.length?`<div class="tablewrap"><table class="t cg-load-table"><thead><tr><th>교사 · 전공</th><th>교과</th><th>창체·부장 등</th><th>총시수</th><th>${refName}과 차이</th><th style="width:30%">비교</th></tr></thead><tbody>${balanceRows}</tbody></table></div><p class="cg-help">${avg==null?'아직 교사 정원이 없어서 <b>등록된 교사들끼리의 평균</b>과 비교하고 있어요.':'교사 1인 평균 전체 시수와 비교해요.'} 분반을 아직 안 맡은 교사는 교과 시수가 0으로 보여요.</p>`:'<div class="info">교사 명단을 넣으면 여기에서 교사별 시수를 비교할 수 있어요.</div>'}
     </div>
   </div>`;
 }
@@ -1731,14 +1752,14 @@ document.addEventListener('click',e=>{
   if(b.dataset.gact){e.preventDefault();e.stopImmediatePropagation();toast('확정된 학년도예요. 7단계에서 잠금을 풀어야 고칠 수 있어요.');return;}
   if(!b.closest('#main')||UI.tab==='years')return;
   if(b.dataset.matg||b.dataset.mats||b.dataset.matgroup||b.dataset.semset||b.dataset.summode)return;
-  if(['saveJson','exportXlsx','printSummary','printCompare','printAssign','zoomMajor'].includes(b.dataset.act))return;
+  if(['saveJson','exportXlsx','printSummary','printCompare','printAssign','zoomMajor','bothToggle','bothFoldAll','bothOpenAll'].includes(b.dataset.act))return;
   e.preventDefault();e.stopImmediatePropagation();toast('확정된 학년도예요. 7단계에서 잠금을 풀어야 고칠 수 있어요.');
 },true);
 document.addEventListener('change',e=>{
   if(!S||S.workspaceStatus!=='confirmed')return;
   const t=e.target;
   if(['fileAssign','filePyeonje','fileJson'].includes(t.id)){e.preventDefault();e.stopImmediatePropagation();t.value='';toast('확정된 학년도예요. 7단계에서 잠금을 풀어야 고칠 수 있어요.');return;}
-  if(t.closest('#main')&&UI.tab!=='years'&&!t.dataset.ui){e.preventDefault();e.stopImmediatePropagation();render();toast('확정된 학년도예요. 7단계에서 잠금을 풀어야 고칠 수 있어요.');}
+  if(t.closest('#main')&&UI.tab!=='years'&&!t.dataset.ui&&!t.dataset.showextra){e.preventDefault();e.stopImmediatePropagation();render();toast('확정된 학년도예요. 7단계에서 잠금을 풀어야 고칠 수 있어요.');}
 },true);
 
 /* ========== 이벤트 처리 ========== */
@@ -1817,6 +1838,9 @@ main.addEventListener('click', async e=>{
     case 'cgRestore':openConfirm('이 시점으로 되돌릴까요? 그 뒤에 고친 내용은 사라져요. 필요하면 먼저 [지금 상태 중간 저장]을 눌러 두세요.',()=>cgRestoreCheckpoint(id));break;
     case 'cgExportAll':cgExportAll();break;
     case 'cgImportAll':document.getElementById('filePortfolio').click();break;
+    case 'bothToggle': { const c=UI.bothClosed=UI.bothClosed||{}; c[b.dataset.m]=!c[b.dataset.m]; render(); break; }
+    case 'bothFoldAll': { const c=UI.bothClosed={}; displayMajors().forEach(m=>c[m]=true); render(); break; }
+    case 'bothOpenAll': UI.bothClosed={}; render(); break;
     case 'zoomMajor': UI.sumMode='zoom'; UI.zoomMajor=b.dataset.m; render(); break;
     case 'editSecsModal': openSecEditModal(id); break;
     case 'addSubject': openAddSubject(); break;
@@ -1850,6 +1874,7 @@ main.addEventListener('click', async e=>{
 main.addEventListener('change', e=>{
   const t = e.target; const ds = t.dataset;
   if (ds.ui){ UI[ds.ui]=t.value; render(); return; }
+  if (ds.showextra){ UI.showExtra=t.checked; try{ localStorage.setItem('cg-show-extra',t.checked?'1':'0'); }catch(err){} render(); return; }
   if (t.id==='yearIn'){ UI.tab='years'; render(); return; }
   if (ds.cls){ S.classes[ds.cls][ds.k]=Math.max(0,parseInt(t.value)||0); rebuildFixed(+ds.cls); commit(); return; }
   if (ds.sign!=null){ S.sign[+ds.sign]=t.value; commit(false); return; }
@@ -1980,11 +2005,11 @@ function doPrint(title, body, landscape){
   document.body.appendChild(f); f.srcdoc=html; setTimeout(()=>f.remove(), 60000);
 }
 function printSummaryHTML(sem){
-  const {items, blocks} = summaryModel(sem);
+  const {items, blocks} = summaryModel(sem); const X=showExtra();
   let rows='';
   blocks.forEach(b=>{
     if(b.type==='major'){ const al={...((S.chang.alloc[sem]||{})[b.major]||{}),[ONLINE_ITEM_ID]:cgSharedAllocated('온라인',b.major,sem)};
-      for(let i=0;i<b.n;i++){ rows+='<tr>'; if(i===0) rows+=`<td rowspan="${b.n}"><b>${esc(b.major)}</b></td>`;
+      for(let i=0;i<b.n;i++){ rows+='<tr>'; if(i===0) rows+=`<td rowspan="${b.n}"><b>${esc(resultLabel(b.major))}</b></td>`;
         [3,2,1].forEach(g=>{
           const s=b.per[g][i];
           if (s){
@@ -1994,13 +2019,13 @@ function printSummaryHTML(sem){
           } else rows += '<td></td><td></td><td></td><td></td><td></td>';
           if(i===0) rows+=`<td rowspan="${b.n}"><b>${b.gradeH[g]||''}</b></td>`;
         });
-        if(i===0){ rows+=`<td rowspan="${b.n}"><b>${b.st.subj||''}</b></td><td rowspan="${b.n}">${cgFmtNeed(cgNeededMajor(b.major,sem))}</td>${items.map(it=>`<td rowspan="${b.n}">${num(al[it.id])||''}</td>`).join('')}<td rowspan="${b.n}">${b.st.ch||''}</td><td rowspan="${b.n}"><b>${b.st.total||''}</b></td><td rowspan="${b.n}"><b>${fmt1(b.st.avg)}</b></td>`; }
+        if(i===0){ rows+=`<td rowspan="${b.n}"><b>${b.st.subj||''}</b></td><td rowspan="${b.n}">${cgFmtNeed(cgNeededMajor(b.major,sem))}</td>${items.map(it=>`<td rowspan="${b.n}">${num(al[it.id])||''}</td>`).join('')}${X?`<td rowspan="${b.n}">${b.st.ch||''}</td><td rowspan="${b.n}"><b>${b.st.total||''}</b></td><td rowspan="${b.n}"><b>${fmt1(b.st.avg)}</b></td>`:`<td rowspan="${b.n}"><b>${fmt1(b.st.avgSubj)}</b></td>`}`; }
         rows+='</tr>'; }
-    } else { const list=b.list||displayMajors(); rows+=`<tr class="${b.type==='group'?'grp':'tot'}"><td>${esc(b.name)}</td>${[3,2,1].map(g=>`<td colspan="5"></td><td>${list.reduce((t,m)=>t+majorGradeHours(m,sem,g),0)}</td>`).join('')}<td>${b.st.subj}</td><td>${cgFmtNeed(cgNeededGroup(list,sem))}</td>${items.map(it=>`<td>${list.reduce((t,m)=>t+num(((S.chang.alloc[sem]||{})[m]||{})[it.id]),0)||''}</td>`).join('')}<td>${b.st.ch}</td><td>${b.st.total}</td><td>${fmt1(b.st.avg)}</td></tr>`; }
+    } else { const list=b.list||displayMajors(); rows+=`<tr class="${b.type==='group'?'grp':'tot'}"><td>${esc(b.name)}</td>${[3,2,1].map(g=>`<td colspan="5"></td><td>${list.reduce((t,m)=>t+majorGradeHours(m,sem,g),0)}</td>`).join('')}<td>${b.st.subj}</td><td>${cgFmtNeed(cgNeededGroup(b.type==='total'?displayMajors():list,sem))}</td>${items.map(it=>`<td>${list.reduce((t,m)=>t+cgItemAllocated(it,m,sem),0)||''}</td>`).join('')}${X?`<td>${b.st.ch}</td><td>${b.st.total}</td><td>${fmt1(b.st.avg)}</td>`:`<td>${fmt1(b.st.avgSubj)}</td>`}</tr>`; }
   });
   return `<div class="top"><div></div>${signTable()}</div><h1>${S.year}학년도 ${sem}학기 교과 수업시수 배당표</h1>
-   <table class="sm"><thead><tr><th rowspan="2">교과</th>${[3,2,1].map(g=>`<th colspan="6">${g}학년</th>`).join('')}<th rowspan="2">교과<br>계</th><th rowspan="2">필요정원</th><th colspan="${items.length+1}">창체·부장 등</th><th rowspan="2">총계</th><th rowspan="2">평균</th></tr>
-   <tr>${[3,2,1].map(()=>'<th>과목</th><th>일반</th><th>과중</th><th>학점</th><th>시수</th><th>소계</th>').join('')}${items.map(it=>`<th>${esc(it.name)}</th>`).join('')}<th>계</th></tr></thead><tbody>${rows}</tbody></table>`;
+   <table class="sm"><thead><tr><th rowspan="2">교과</th>${[3,2,1].map(g=>`<th colspan="6">${g}학년</th>`).join('')}<th rowspan="2">교과<br>계</th><th rowspan="2">필요정원</th>${X?`<th colspan="${items.length+1}">부장·창체 등</th><th rowspan="2">총계</th>`:''}<th rowspan="2">${X?'평균':'교과<br>평균'}</th></tr>
+   <tr>${[3,2,1].map(()=>'<th>과목</th><th>일반</th><th>과중</th><th>학점</th><th>시수</th><th>소계</th>').join('')}${items.map(it=>`<th>${esc(it.name)}</th>`).join('')}${X?'<th>계</th>':''}</tr></thead><tbody>${rows}</tbody></table>`;
 }
 function printCompareHTML(){
   const rows = compareRows().map(r=>{ const d=(r.s1.avg!=null&&r.s2.avg!=null)?r.s2.avg-r.s1.avg:null; return `<tr class="${r.cls}"><td class="l">${esc(r.name)}</td><td>${cgFmtNeed(r.cls?cgNeededGroup(r.cls==='tot'?displayMajors():GROUPS[r.name.replace(' 계','')]||[],null):cgNeededMajor(r.name,null))}</td><td>${r.s1.subj}</td><td>${r.s1.ch||''}</td><td><b>${fmt1(r.s1.avg)}</b></td><td>${r.s2.subj}</td><td>${r.s2.ch||''}</td><td><b>${fmt1(r.s2.avg)}</b></td><td>${d==null?'':(d>0?'+':'')+fmt1(d)}</td></tr>`; }).join('');
@@ -2030,7 +2055,7 @@ function exportXlsx(){
   if (typeof XLSX==='undefined'){ toast('엑셀 도구를 불러오지 못했어요'); return; }
   const wb = XLSX.utils.book_new();
   [1,2].forEach(sem=>{
-    const {items, blocks} = summaryModel(sem); const aoa=[]; const merges=[];
+    const {items, blocks} = summaryModel(sem, true); const aoa=[]; const merges=[];
     aoa.push([`${S.year}학년도 ${sem}학기 교과 수업시수 배당표`]);
     const h1=['교과']; [3,2,1].forEach(g=>h1.push(g+'학년','','','','','')); h1.push('교과 계','필요정원','창체·부장 등',...Array(items.length).fill(''),'총계','평균');
     const h2=['']; [3,2,1].forEach(()=>h2.push('과목','일반','과중','학점','시수','소계')); h2.push('','',...items.map(it=>it.name),'창체 계','','');
@@ -2068,12 +2093,12 @@ function exportXlsx(){
     ws['!cols']=[{wch:10},...[0,1,2].flatMap(()=>[{wch:20},{wch:5},{wch:5},{wch:5},{wch:5},{wch:6}]),{wch:8},{wch:6},...items.map(()=>({wch:8})),{wch:7},{wch:7},{wch:6},{wch:7}];
     XLSX.utils.book_append_sheet(wb, ws, `총괄_${sem}학기`);
   });
-  { const aoa=[[`${S.year}학년도 1·2학기 과목별 통합 배당표`],['전공','학년','과목','1학기 반 수','1학기 단위 시수','1학기 합','2학기 반 수','2학기 단위 시수','2학기 합','연간 평균 합','전공 필요정원']];
-    bothSummaryModel().forEach(r=>{
-      if(r.type==='course'){const a=r.sem[1],b=r.sem[2];aoa.push([r.major,r.grade,r.name,a?.sections??null,a?.credits??null,a?.hours??null,b?.sections??null,b?.credits??null,b?.hours??null,((a?.hours||0)+(b?.hours||0))/2,null]);}
-      else aoa.push([r.major,null,r.type==='major'?'전공 소계':'합계',null,null,r.tot[0],null,null,r.tot[1],(r.tot[0]+r.tot[1])/2,r.type==='major'?cgNeededMajor(r.major,null):cgNeededGroup(r.type==='grand'?displayMajors():GROUPS[r.major.replace(' 계','')]||[],null)]);
+  { const aoa=[[`${S.year}학년도 1·2학기 과목별 통합 배당표`],['전공','학년','과목','1학기 반 수','1학기 단위 시수','1학기 합','2학기 반 수','2학기 단위 시수','2학기 합','연간 평균 합','전공 필요정원','현정원']];
+    bothSummaryModel(true).forEach(r=>{
+      if(r.type==='course'){const a=r.sem[1],b=r.sem[2];aoa.push([resultLabel(r.major),r.extra?null:r.grade,r.name,a?.sections??null,a?.credits??null,a?.hours??null,b?.sections??null,b?.credits??null,b?.hours??null,((a?.hours||0)+(b?.hours||0))/2,null,null]);}
+      else aoa.push([r.major,null,r.type==='major'?'전공 소계':'합계',null,null,r.tot[0],null,null,r.tot[1],(r.tot[0]+r.tot[1])/2,r.type==='major'?cgNeededMajor(r.major,null):cgNeededGroup(r.type==='grand'?displayMajors():GROUPS[r.major.replace(' 계','')]||[],null),cgCurQuota(r)]);
     });
-    const ws=XLSX.utils.aoa_to_sheet(aoa);ws['!cols']=[{wch:14},{wch:6},{wch:27},...Array(8).fill({wch:12})];
+    const ws=XLSX.utils.aoa_to_sheet(aoa);ws['!cols']=[{wch:14},{wch:6},{wch:27},...Array(9).fill({wch:12})];
     XLSX.utils.book_append_sheet(wb,ws,'1·2학기 한줄통합');
   }
   { const aoa=[[`${S.year}학년도 1·2학기 비교`],['교과(전공)','필요정원(연간)','1학기 교과','1학기 창체','1학기 평균','2학기 교과','2학기 창체','2학기 평균','증감']];

@@ -799,7 +799,7 @@ table.t thead th{font-size:13px;line-height:1.4}
 .cg-capacity-page{display:flex;flex-direction:column;gap:14px}
 .cg-capacity-page>.panel{margin-bottom:0}
 .cg-capacity-page table .w40{max-width:58px}
-.cg-capacity-page .cg-school-quota{grid-template-columns:minmax(170px,1fr) repeat(3,minmax(150px,1fr))}
+.cg-capacity-page .cg-school-quota{grid-template-columns:minmax(160px,1fr) repeat(4,minmax(140px,1fr))}
 .cg-shared-label{font-size:11px;font-weight:600;color:#64748b}
 .cg-balance-alert,.cg-balance-good{border-radius:9px;padding:10px 13px;margin-top:12px;line-height:1.55;font-size:13px}
 .cg-balance-alert{background:#fff7ed;color:#9a3412;border:1px solid #fed7aa}
@@ -902,3 +902,12 @@ table.t thead th{font-size:13px;line-height:1.4}
 .cg-ops-steps b{display:inline-flex;align-items:center;justify-content:center;width:21px;height:21px;border-radius:50%;background:#2563eb;color:white;margin-right:6px}
 .cg-ops-caution{font-size:12.5px;line-height:1.65;color:#6c4c12;background:#fff8e8;border:1px solid #f2dda6;border-radius:10px;padding:10px 12px;margin-top:11px}
 @media(max-width:720px){.cg-ops-steps{grid-template-columns:1fr}}
+
+/* 6.5.5 접기·현정원 */
+.cg-fold{border:0;background:none;cursor:pointer;font-size:13px;padding:0 4px 0 0;color:#1d4ed8}
+.cg-both-summary .cg-cur-quota{font-weight:700;color:#334155}
+.cg-both-summary tr[hidden]{display:none}
+/* 6.5.6 전공 외 과목 출력 */
+.cg-extra-toggle{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:700;color:#1e3a8a;background:#eef4ff;border:1px solid #c7d7fe;border-radius:8px;padding:6px 10px;cursor:pointer;user-select:none}
+.cg-extra-toggle input{width:16px;height:16px;margin:0}
+.cg-both-summary .cg-extra-row{color:#475569;font-weight:600}
