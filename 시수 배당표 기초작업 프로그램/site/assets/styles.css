@@ -911,3 +911,13 @@ table.t thead th{font-size:13px;line-height:1.4}
 .cg-extra-toggle{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:700;color:#1e3a8a;background:#eef4ff;border:1px solid #c7d7fe;border-radius:8px;padding:6px 10px;cursor:pointer;user-select:none}
 .cg-extra-toggle input{width:16px;height:16px;margin:0}
 .cg-both-summary .cg-extra-row{color:#475569;font-weight:600}
+/* 6.5.8 ③ 실시간 평균 */
+.cg-live-box{position:sticky;top:132px;z-index:3;display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;background:#f5f8ff;border:1px solid #c7d7fe;border-radius:12px;padding:10px 14px;margin:6px 0 12px;box-shadow:0 2px 6px rgba(30,58,138,.06)}
+.cg-live-box div{display:flex;flex-direction:column;min-width:110px}
+.cg-live-box span{font-size:12px;color:#475569;font-weight:600}
+.cg-live-box strong{font-size:20px;color:#1d4ed8;font-variant-numeric:tabular-nums}
+.cg-live-box .main strong{font-size:24px;color:#1e3a8a}
+.cg-live-box .op{font-size:18px;color:#64748b}
+.cg-live-box small{flex-basis:100%;color:#64748b;font-size:12px}
+.cg-live-per{color:#1d4ed8;font-weight:700}
+@media(max-width:700px){.cg-live-box{position:static}.cg-live-box div{min-width:90px}.cg-live-box strong{font-size:17px}.cg-live-box .main strong{font-size:20px}}

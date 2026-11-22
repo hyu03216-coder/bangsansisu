@@ -362,8 +362,7 @@ function cgShareSummary(sem){
 function cgEffectiveHours(major,sem){
   if(major===NOMAJOR || major==='온라인') return 0; // 전공없음은 정원 계산 제외
   if(isShared(major)) return majorHours(major,sem); // 6.5: 통합 과목 시수는 교과군(사회과·과학과) 계에만 더함
-  const st=majorStats(major,sem);
-  return st.total - st.tutor;
+  return majorHours(major,sem); // 6.5.7: 전공별 필요정원은 그 전공의 교과 시수만 (나눠 받은 부장·창체 시수는 넣지 않음)
 }
 function cgQuotaInfo(){
   const manual=Number(S.schoolQuota);
@@ -379,7 +378,7 @@ function cgBreakdown(sem){
   const extra=cgChangNeed(sem)+cgNoMajorHours(sem);
   const tutor=0;
   const total=curriculum+extra-tutor;
-  const allocated=usedMajors().reduce((t,m)=>t+cgEffectiveHours(m,sem),0);
+  const allocated=usedMajors().reduce((t,m)=>t+cgEffectiveHours(m,sem),0)+cgChangAssigned(sem);
   return {curriculum,extra,nomajor:cgNoMajorHours(sem),tutor,total,allocated,gap:total-cgNoMajorHours(sem)-allocated,
     changAllocated:cgChangAssigned(sem),changGap:extra-cgChangAssigned(sem),
     share:cgShareSummary(sem)};
@@ -871,6 +870,7 @@ function render(){
   const f0 = views[UI.tab], f = typeof stepFrame==='function' ? ()=>stepFrame(f0()) : f0;
   const y = window.scrollY;
   el.innerHTML = (S.workspaceStatus==='confirmed'&&!['years','year','finish'].includes(UI.tab)?'<div class="cg-readonly">🔒 확정된 학년도라 볼 수만 있어요. 고치려면 7단계 [내보내기·확정]에서 잠금을 풀어 주세요.</div>':'')+f();
+  try{ cgLiveChang(el); }catch(err){}
   window.scrollTo(0,y);
 }
 function semSeg(key){ return `<span class="seg">${[1,2].map(s=>`<button data-semset="${key}" data-v="${s}" class="${UI[key]===s?'on':''}">${s}학기</button>`).join('')}</span>`; }
@@ -1584,13 +1584,27 @@ function vCompare(){
       <td class="n">${r.s2.subj}</td><td class="n">${r.s2.ch||''}</td><td class="n strong">${fmt1(r.s2.avg)}</td>
       <td class="n" style="${d>0?'color:var(--bad)':d<0?'color:var(--ok)':''}">${d==null?'':(d>0?'+':'')+fmt1(d)}</td><td class="n strong">${fmt1(yr)}</td></tr>`;
   }).join('');
-  return `<div class="panel"><div class="row" style="margin-bottom:10px"><h2 style="margin:0">전공별 1·2학기 시수 비교</h2><span class="muted small">평균 = (교과 + 창체·부장 등) ÷ 정원 · 필요정원 = 그 전공 시수 ÷ 교사 1인 평균 전체 시수</span><span style="flex:1"></span>${printBtn('printCompare')}</div>
+  return `<div class="panel"><div class="row" style="margin-bottom:10px"><h2 style="margin:0">전공별 1·2학기 시수 비교</h2><span class="muted small">평균 = (교과 + 창체·부장 등) ÷ 정원 · 필요정원 = 그 전공 교과 시수 ÷ 교사 1인 평균 전체 시수</span><span style="flex:1"></span>${printBtn('printCompare')}</div>
   <div class="tablewrap"><table class="t"><thead>
    <tr><th rowspan="2">교과(전공)</th><th rowspan="2">필요정원<br><small>(연간)</small></th><th colspan="3">1학기</th><th colspan="3">2학기</th><th rowspan="2">증감(2−1)</th><th rowspan="2">연간 평균</th></tr>
    <tr><th>교과</th><th>창체</th><th>평균</th><th>교과</th><th>창체</th><th>평균</th></tr></thead><tbody>${body}</tbody></table></div></div>`;
 }
 
 /* ----- 5. 정원·강사·창체 탭 ----- */
+/* 6.5.8: ③ 표에 시수를 적는 동안 교사 1인 평균이 바로 바뀌어 보이게 */
+function cgLiveChang(root){
+  root=root||document; const box=root.querySelector('.cg-live-box'); if(!box) return;
+  const q=cgQuotaInfo().quota, set=(k,v)=>{ const el=root.querySelector(`[data-live="${k}"]`); if(el) el.textContent=v; };
+  const per=h=>q?fmt1(h/q):'—';
+  let s1=0,s2=0;
+  S.chang.items.forEach((it,i)=>{ if(norm(it.name)==='진로'||norm(it.name)==='온라인')return; const a=num(it.need1),b=num(it.need2); s1+=a; s2+=b; set('avg'+i,fmt1((a+b)/2)); set('per'+i,per((a+b)/2)); });
+  const n1=cgNoMajorHours(1),n2=cgNoMajorHours(2); s1+=n1; s2+=n2;
+  set('avgNM',fmt1((n1+n2)/2)); set('perNM',per((n1+n2)/2));
+  set('sum1',s1); set('sum2',s2); set('sumAvg',fmt1((s1+s2)/2)); set('sumPer',per((s1+s2)/2));
+  const b1=cgBreakdown(1),b2=cgBreakdown(2), subj=(b1.curriculum+b2.curriculum)/2;
+  set('subjAvg',per(subj)); set('extraAvg',per((s1+s2)/2)); set('allAvg',q?fmt1((subj+(s1+s2)/2)/q):'—');
+  set('note',q?`정원 ${q}명 기준 · 적는 즉시 바뀌어요`:'5단계 ① 에서 교사 정원을 넣으면 1명당 시수가 보여요');
+}
 function vChang(){
   const sem=UI.changSem,items=cgExtraItems(),majors=displayMajors();
   const teacherMajors=majors.filter(m=>!isShared(m)&&m!==NOMAJOR);
@@ -1609,7 +1623,9 @@ function vChang(){
   const itemRows=S.chang.items.map((it,i)=>`<tr><td><input type="text" style="width:150px;font-weight:600" data-item="${i}" data-f="name" value="${esc(it.name)}"></td>
     <td class="c"><input type="number" min="0" data-item="${i}" data-f="need1" value="${it.need1}"></td>
     <td class="c"><input type="number" min="0" data-item="${i}" data-f="need2" value="${it.need2}"></td>
+    <td class="n" data-live="avg${i}"></td><td class="n cg-live-per" data-live="per${i}"></td>
     <td><button class="btn sm danger" data-act="itemDel" data-i="${i}">삭제</button></td></tr>`).join('');
+  const overlap=S.chang.items.some(it=>/교양|온라인/.test(norm(it.name))&&(num(it.need1)||num(it.need2))) && (cgNoMajorHours(1)||cgNoMajorHours(2));
   const al=S.chang.alloc[sem]=S.chang.alloc[sem]||{};
   const colTot=items.map(it=>teacherMajors.reduce((t,m)=>t+cgItemAllocated(it,m,sem),0));
   const grid=teacherMajors.map(m=>`<tr><td><b>${esc(m)}</b></td>${items.map(it=>it.id===ONLINE_ITEM_ID?`<td class="c cg-online-col"><input type="number" min="0" class="w40" data-shared="온라인" data-shmaj="${esc(m)}" value="${cgItemAllocated(it,m,sem)||''}" aria-label="${esc(m)} 온라인 배정시수"></td>`:`<td class="c"><input type="number" min="0" class="w40" data-al="${m}" data-item="${it.id}" value="${(al[m]||{})[it.id]??''}"></td>`).join('')}<td class="n strong">${changOf(m,sem)||''}</td></tr>`).join('');
@@ -1635,7 +1651,7 @@ function vChang(){
         ${[1,2].map(n=>{const x=cgBreakdown(n);return `<tr><td class="c"><b>${n}학기</b></td><td class="n">${x.curriculum}</td><td class="n">+ ${x.extra}</td><td class="n strong">${x.total}</td><td class="n">${x.allocated}</td><td class="n"><span class="pill ${x.gap===0?'ok':x.gap>0?'warn':'bad'}">${x.gap===0?'다 나눔':x.gap>0?x.gap+'시수 남음':(-x.gap)+'시수 넘침'}</span></td></tr>`;}).join('')}
       </tbody></table></div>
       <details class="cg-calc"><summary>계산 방법 보기</summary><p class="cg-help"><b>교사 1인 평균 교과 시수</b> = 교과 전체 시수의 1·2학기 평균 ÷ 교사 정원<br><b>교사 1인 평균 전체 시수</b> = (교과 + 부장, 창체(자치·적응), 직업반, 교양, 온라인)의 1·2학기 평균 ÷ 교사 정원<br>
-      <b>전공별 필요정원</b> = (그 전공의 교과 시수 + 그 전공이 나눠 받은 창체·부장 시수)의 1·2학기 평균 ÷ 교사 1인 평균 전체 시수<br>
+      <b>전공별 필요정원</b> = 그 전공의 교과 시수의 1·2학기 평균 ÷ 교사 1인 평균 전체 시수 (나눠 받은 부장·창체 시수는 넣지 않아요)<br>
       <b>사회과·과학과 계</b> = (전공 시수 합 + 통합사회·통합과학 시수) ÷ 사회과·과학과 전체 인원 — 통합 과목은 전공별로 나누지 않아요.<br>'전공없음'(교양·온라인학교 포함) 과목은 정원 계산에서 빠져요. 시간강사는 정원 계산에 넣지 않고, 6단계 교사 명단에서 '시간강사'로 추가해 분반을 맡겨요. 지금 정원 기준: ${esc(cQ.source)}.</p></details>
       ${[1,2].some(n=>cgDuplicateWarnings(n))?`<div class="cg-balance-alert"><b>겹쳐서 계산될 뻔한 시수</b> · ${[1,2].map(n=>cgDuplicateWarnings(n)?`${n}학기: ${esc(cgDuplicateWarnings(n))}`:'').filter(Boolean).join(' / ')}</div>`:''}
     </div>
@@ -1645,7 +1661,15 @@ function vChang(){
     </div>
     <div class="panel"><h2>③ 부장, 창체(자치·적응), 직업반, 교양, 온라인 시수</h2>
       <p class="cg-help">학교 전체에서 맡아야 하는 시수예요. 예: 담임(자치) 30학급이면 30. 1학년 진로는 '진로' 전공 교과로 따로 계산돼요.</p>
-      <div class="tablewrap"><table class="t"><thead><tr><th>항목</th><th>1학기</th><th>2학기</th><th></th></tr></thead><tbody>${itemRows}<tr><td><b>교양·온라인</b><br><small class="muted">전공없음 과목 시수 · 3단계에서 자동</small></td><td class="c"><b>${cgNoMajorHours(1)}</b></td><td class="c"><b>${cgNoMajorHours(2)}</b></td><td></td></tr></tbody></table></div>
+      <div class="cg-live-box" aria-live="polite">
+        <div><span>교사 1인 평균 교과 시수</span><strong data-live="subjAvg">—</strong></div><b class="op">+</b>
+        <div><span>이 표의 시수 (1명당)</span><strong data-live="extraAvg">—</strong></div><b class="op">=</b>
+        <div class="main"><span>교사 1인 평균 전체 시수</span><strong data-live="allAvg">—</strong></div>
+        <small data-live="note"></small>
+      </div>
+      ${overlap?`<div class="cg-balance-alert"><b>겹칠 수 있어요</b> · 3단계에서 '전공없음'으로 둔 교양·온라인학교 과목 시수(아래 자동 줄)가 이미 들어가 있어요. 같은 시수를 위 항목에도 적으면 두 번 계산돼요.</div>`:''}
+      <div class="tablewrap"><table class="t"><thead><tr><th>항목</th><th>1학기</th><th>2학기</th><th>연간 평균</th><th>교사 1명당</th><th></th></tr></thead><tbody>${itemRows}<tr><td><b>교양·온라인</b><br><small class="muted">전공없음 과목 시수 · 3단계에서 자동</small></td><td class="c"><b>${cgNoMajorHours(1)}</b></td><td class="c"><b>${cgNoMajorHours(2)}</b></td><td class="n" data-live="avgNM"></td><td class="n cg-live-per" data-live="perNM"></td><td></td></tr>
+      <tr class="tot"><td>합계</td><td class="c" data-live="sum1"></td><td class="c" data-live="sum2"></td><td class="n" data-live="sumAvg"></td><td class="n cg-live-per" data-live="sumPer"></td><td></td></tr></tbody></table></div>
       <div class="row" style="margin-top:8px"><button class="btn pri sm" data-act="itemAdd">+ 항목 추가</button></div>
     </div>
     <div class="panel"><div class="row" style="margin-bottom:10px"><h2 style="margin:0">④ 창체·부장 시수를 전공별로 나누기</h2> ${semSeg('changSem')}
@@ -1871,6 +1895,10 @@ main.addEventListener('click', async e=>{
   }
 });
 
+main.addEventListener('input', e=>{ // 6.5.8: ③ 시수 입력 중 바로 평균 갱신 (저장은 change에서)
+  const t=e.target, ds=t.dataset;
+  if(ds.item!=null && (ds.f==='need1'||ds.f==='need2')){ const it=S.chang.items[+ds.item]; if(it){ it[ds.f]=num(t.value); cgLiveChang(main); } }
+});
 main.addEventListener('change', e=>{
   const t = e.target; const ds = t.dataset;
   if (ds.ui){ UI[ds.ui]=t.value; render(); return; }
