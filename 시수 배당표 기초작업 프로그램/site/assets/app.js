@@ -338,7 +338,7 @@ function cgItemAllocated(item,major,sem){
 }
 function cgTeacherItem(t,item,sem){return num((((t.chang||{})[sem])||{})[item.id]);}
 function cgChangNeed(sem){return cgExtraItems().reduce((t,it)=>t+num(it['need'+sem]),0);}
-function cgNoMajorHours(sem){return majorHours(NOMAJOR,sem);} // 6.5.5: 교양·온라인 등 전공없음 과목 — 학교 전체 시수에는 넣고 전공 정원에는 넣지 않음
+function cgNoMajorHours(sem){return majorHours(NOMAJOR,sem);} // 6.5.10: 교양·온라인 등 전공없음 과목 — 참고용(합산하지 않음)
 function cgChangAssigned(sem){
   return usedMajors().filter(m=>!isShared(m)).reduce((t,m)=>t+changOf(m,sem),0);
 }
@@ -375,11 +375,11 @@ function cgQuotaInfo(){
 }
 function cgBreakdown(sem){
   const curriculum=displayMajors().filter(m=>m!==NOMAJOR).reduce((t,m)=>t+majorHours(m,sem),0); // 온라인 개설시수는 창체·교과외 열로 이동
-  const extra=cgChangNeed(sem)+cgNoMajorHours(sem);
+  const extra=cgChangNeed(sem); // 6.5.10: 전공없음(교양·온라인) 과목 시수는 참고로만 보여 주고 합산하지 않음 — 담당자가 ③에 직접 항목으로 넣음
   const tutor=0;
   const total=curriculum+extra-tutor;
   const allocated=usedMajors().reduce((t,m)=>t+cgEffectiveHours(m,sem),0)+cgChangAssigned(sem);
-  return {curriculum,extra,nomajor:cgNoMajorHours(sem),tutor,total,allocated,gap:total-cgNoMajorHours(sem)-allocated,
+  return {curriculum,extra,nomajor:cgNoMajorHours(sem),tutor,total,allocated,gap:total-allocated,
     changAllocated:cgChangAssigned(sem),changGap:extra-cgChangAssigned(sem),
     share:cgShareSummary(sem)};
 }
@@ -1380,7 +1380,8 @@ function summaryModel(sem, full){
     const g = groupOf(m); const next = majors[idx+1];
     if (g && groupOf(next)!==g){ const list=GROUPS[g].filter(x=>majors.includes(x)); blocks.push({type:'group', name:g+' 계', st:sumStats(list,sem), list}); }
   });
-  blocks.push({type:'total', name:'전체', st:sumStats(majors,sem),list:majors});
+  const sumList=majors.filter(m=>m!==NOMAJOR); // 전공 외 과목은 참고로만 보여 주고 전체 합계에는 넣지 않음 (③에 직접 적은 항목과 겹치지 않게)
+  blocks.push({type:'total', name:'전체', st:sumStats(sumList,sem),list:sumList});
   return {items, blocks};
 }
 
@@ -1497,7 +1498,7 @@ function bothSummaryModel(full){
       if(h[0]||h[1]) out.push({type:'course',extra:true,major:m,grade:'',name:it.name,sem:{1:h[0]?{sections:null,credits:null,hours:h[0]}:null,2:h[1]?{sections:null,credits:null,hours:h[1]}:null}});
     });
     const s1=hrs(m,1),s2=hrs(m,2);
-    grand[0]+=s1; grand[1]+=s2;
+    if(m!==NOMAJOR){ grand[0]+=s1; grand[1]+=s2; }
     out.push({type:'major',major:m,tot:[s1,s2]});
     const grp=groupOf(m), next=majors[i+1];
     if(grp && groupOf(next)!==grp){const list=GROUPS[grp].filter(x=>majors.includes(x));out.push({type:'group',major:grp+' 계',tot:[1,2].map(sem=>list.reduce((a,mm)=>a+hrs(mm,sem),0))});}
@@ -1570,7 +1571,7 @@ function compareRows(){
     rows.push({name:m, cls:'', s1:majorStats(m,1), s2:majorStats(m,2), indent:!!groupOf(m)});
     const g=groupOf(m); if(g && groupOf(majors[idx+1])!==g){ const list=GROUPS[g].filter(x=>majors.includes(x)); rows.push({name:g+' 계', cls:'grp', s1:sumStats(list,1), s2:sumStats(list,2)}); }
   });
-  rows.push({name:'전체', cls:'tot', s1:sumStats(majors,1), s2:sumStats(majors,2)});
+  rows.push({name:'전체', cls:'tot', s1:sumStats(majors.filter(m=>m!==NOMAJOR),1), s2:sumStats(majors.filter(m=>m!==NOMAJOR),2)});
   return rows;
 }
 function vCompare(){
@@ -1619,7 +1620,6 @@ function vChang(){
     <td class="c"><input type="number" min="0" data-item="${i}" data-f="need1" value="${it.need1}"></td>
     <td class="c"><input type="number" min="0" data-item="${i}" data-f="need2" value="${it.need2}"></td>
     <td><button class="btn sm danger" data-act="itemDel" data-i="${i}">삭제</button></td></tr>`).join('');
-  const overlap=S.chang.items.some(it=>/교양|온라인/.test(norm(it.name))&&(num(it.need1)||num(it.need2))) && (cgNoMajorHours(1)||cgNoMajorHours(2));
   const al=S.chang.alloc[sem]=S.chang.alloc[sem]||{};
   const colTot=items.map(it=>teacherMajors.reduce((t,m)=>t+cgItemAllocated(it,m,sem),0));
   const grid=teacherMajors.map(m=>`<tr><td><b>${esc(m)}</b></td>${items.map(it=>it.id===ONLINE_ITEM_ID?`<td class="c cg-online-col"><input type="number" min="0" class="w40" data-shared="온라인" data-shmaj="${esc(m)}" value="${cgItemAllocated(it,m,sem)||''}" aria-label="${esc(m)} 온라인 배정시수"></td>`:`<td class="c"><input type="number" min="0" class="w40" data-al="${m}" data-item="${it.id}" value="${(al[m]||{})[it.id]??''}"></td>`).join('')}<td class="n strong" data-live="ch-${esc(m)}">${changOf(m,sem)||''}</td>${cgAvgCells(m,sem)}</tr>`).join('');
@@ -1646,7 +1646,7 @@ function vChang(){
       </tbody></table></div>
       <details class="cg-calc"><summary>계산 방법 보기</summary><p class="cg-help"><b>교사 1인 평균 교과 시수</b> = 교과 전체 시수의 1·2학기 평균 ÷ 교사 정원<br><b>교사 1인 평균 전체 시수</b> = (교과 + 부장, 창체(자치·적응), 직업반, 교양, 온라인)의 1·2학기 평균 ÷ 교사 정원<br>
       <b>전공별 필요정원</b> = 그 전공의 교과 시수의 1·2학기 평균 ÷ 교사 1인 평균 전체 시수 (나눠 받은 부장·창체 시수는 넣지 않아요)<br>
-      <b>사회과·과학과 계</b> = (전공 시수 합 + 통합사회·통합과학 시수) ÷ 사회과·과학과 전체 인원 — 통합 과목은 전공별로 나누지 않아요.<br>'전공없음'(교양·온라인학교 포함) 과목은 정원 계산에서 빠져요. 시간강사는 정원 계산에 넣지 않고, 6단계 교사 명단에서 '시간강사'로 추가해 분반을 맡겨요. 지금 정원 기준: ${esc(cQ.source)}.</p></details>
+      <b>사회과·과학과 계</b> = (전공 시수 합 + 통합사회·통합과학 시수) ÷ 사회과·과학과 전체 인원 — 통합 과목은 전공별로 나누지 않아요.<br>'전공없음'(교양·온라인학교 포함) 과목은 정원 계산과 학교 전체 시수에서 빠져요. ③에 참고로 보이니, 보고 필요한 만큼 항목으로 직접 적으세요. 시간강사는 정원 계산에 넣지 않고, 6단계 교사 명단에서 '시간강사'로 추가해 분반을 맡겨요. 지금 정원 기준: ${esc(cQ.source)}.</p></details>
       ${[1,2].some(n=>cgDuplicateWarnings(n))?`<div class="cg-balance-alert"><b>겹쳐서 계산될 뻔한 시수</b> · ${[1,2].map(n=>cgDuplicateWarnings(n)?`${n}학기: ${esc(cgDuplicateWarnings(n))}`:'').filter(Boolean).join(' / ')}</div>`:''}
     </div>
     <div class="panel"><h2>② 전공별 교사 정원</h2><p class="cg-help" style="margin-top:-4px">전공별 정원을 넣으면 평균 시수와 비교할 수 있어요.</p>
@@ -1655,9 +1655,8 @@ function vChang(){
     </div>
     <div class="panel"><h2>③ 부장, 창체(자치·적응), 직업반, 교양, 온라인 시수</h2>
       <p class="cg-help">학교 전체에서 맡아야 하는 시수예요. 예: 담임(자치) 30학급이면 30. 1학년 진로는 '진로' 전공 교과로 따로 계산돼요.</p>
-      ${overlap?`<div class="cg-balance-alert"><b>겹칠 수 있어요</b> · 3단계에서 '전공없음'으로 둔 교양·온라인학교 과목 시수(아래 자동 줄)가 이미 들어가 있어요. 같은 시수를 위 항목에도 적으면 두 번 계산돼요.</div>`:''}
-      <div class="tablewrap"><table class="t"><thead><tr><th>항목</th><th>1학기</th><th>2학기</th><th></th></tr></thead><tbody>${itemRows}<tr><td><b>교양·온라인</b><br><small class="muted">전공없음 과목 시수 · 3단계에서 자동</small></td><td class="c"><b>${cgNoMajorHours(1)}</b></td><td class="c"><b>${cgNoMajorHours(2)}</b></td><td></td></tr>
-      <tr class="tot"><td>합계</td><td class="c">${S.chang.items.reduce((t,it)=>t+num(it.need1),0)+cgNoMajorHours(1)}</td><td class="c">${S.chang.items.reduce((t,it)=>t+num(it.need2),0)+cgNoMajorHours(2)}</td><td></td></tr></tbody></table></div>
+      <div class="tablewrap"><table class="t"><thead><tr><th>항목</th><th>1학기</th><th>2학기</th><th></th></tr></thead><tbody>${itemRows}<tr class="cg-ref-row"><td><span class="pill">참고</span> <b>전공없음 과목 시수</b><br><small class="muted">3단계에서 '전공없음'으로 둔 교양·온라인학교 등 · 합계에 들어가지 않아요. 보고 위 항목에 직접 적으세요</small></td><td class="c">${cgNoMajorHours(1)}</td><td class="c">${cgNoMajorHours(2)}</td><td></td></tr>
+      <tr class="tot"><td>합계</td><td class="c">${cgChangNeed(1)}</td><td class="c">${cgChangNeed(2)}</td><td></td></tr></tbody></table></div>
       <div class="row" style="margin-top:8px"><button class="btn pri sm" data-act="itemAdd">+ 항목 추가</button></div>
     </div>
     <div class="panel"><div class="row" style="margin-bottom:10px"><h2 style="margin:0">④ 창체·부장 시수를 전공별로 나누기</h2> ${semSeg('changSem')}
