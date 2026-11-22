@@ -339,8 +339,17 @@ function cgItemAllocated(item,major,sem){
 function cgTeacherItem(t,item,sem){return num((((t.chang||{})[sem])||{})[item.id]);}
 function cgChangNeed(sem){return cgExtraItems().reduce((t,it)=>t+num(it['need'+sem]),0);}
 function cgNoMajorHours(sem){return majorHours(NOMAJOR,sem);} // 6.5.10: 교양·온라인 등 전공없음 과목 — 참고용(합산하지 않음)
+/* 6.5.12: 부장·창체 배분은 사회·과학 교과군은 '사회과'·'과학과' 단위로 (키: '사회','과학') */
+const allocKey = m => groupOf(m) || m;
+const allocKeys = () => { const out=[]; displayMajors().filter(m=>!isShared(m)&&m!==NOMAJOR).forEach(m=>{ const k=allocKey(m); if(!out.includes(k)) out.push(k); }); return out; };
+const allocLabel = k => GROUPS[k] ? k+'과' : k;
+function cgGroupStats(g,sem){ // 교과군 전체: (전공 시수 합 + 통합 + 교과군 배분 창체) ÷ 교과군 정원
+  const list=GROUPS[g].filter(m=>displayMajors().includes(m));
+  const subj=list.reduce((t,m)=>t+majorHours(m,sem),0), ch=changOf(g,sem), quota=list.reduce((t,m)=>t+(isShared(m)?0:num(cap(m).quota)),0);
+  return {subj,ch,total:subj+ch,quota,avg:quota?(subj+ch)/quota:null};
+}
 function cgChangAssigned(sem){
-  return usedMajors().filter(m=>!isShared(m)).reduce((t,m)=>t+changOf(m,sem),0);
+  return Object.keys((S.chang.alloc||{})[sem]||{}).filter(k=>!isShared(k)&&k!==NOMAJOR).reduce((t,k)=>t+changOf(k,sem),0);
 }
 function cgSharedSources(sem){
   return []; // 6.5: 통합 과목은 전공별로 나누지 않고 사회과·과학과 전체(계)로 계산
@@ -431,6 +440,7 @@ function majorStats(major, sem){
 function sumStats(list, sem){
   const r = {subj:0,ch:0,tutor:0,total:0,quota:0};
   list.forEach(m=>{ const x=majorStats(m,sem); r.subj+=x.subj; r.ch+=x.ch; r.tutor+=x.tutor; r.total+=x.total; r.quota+=x.quota; });
+  Object.keys(GROUPS).forEach(g=>{ if(list.some(m=>groupOf(m)===g)){ const c=changOf(g,sem); r.ch+=c; r.total+=c; } }); // 교과군 단위 배분
   r.avg = r.quota?(r.total-r.tutor)/r.quota:null; r.avgSubj = r.quota?(r.subj-r.tutor)/r.quota:null;
   return r;
 }
@@ -537,6 +547,7 @@ function migrate(st){
   st.sharedAlloc = st.sharedAlloc||{1:{},2:{}};
   [1,2].forEach(sem=>{st.sharedAlloc[sem]=st.sharedAlloc[sem]||{};});
   S = st;
+  if(!S.v6512){ S.v6512=true; [1,2].forEach(sem=>{ const al=(S.chang.alloc||{})[sem]||{}; Object.keys(GROUPS).forEach(g=>{ GROUPS[g].forEach(m=>{ const a=al[m]; if(!a)return; const t=al[g]=al[g]||{}; Object.entries(a).forEach(([id,v])=>{ t[id]=num(t[id])+num(v); }); delete al[m]; }); }); }); } // 6.5.12: 사회·과학 배분을 교과군 단위로 합침
   if(!S.v654){ S.v654=true; if(num((S.capacity['진로']||{}).quota)===1) delete S.capacity['진로'].quota; } // 6.5.4: 예전에 자동으로 넣었던 진로 1명 지우기
   // 기존 데이터의 중복 창체 진로는
   // 교과(1학년 1~10반 × 1시수)에 이미 포함되어 있으므로 제거합니다.
@@ -1413,7 +1424,7 @@ function buildSummaryTableHTML(sem){
       }
     } else {
       const cls = b.type==='group'?'grp':'tot';
-      const chs = items.map(it=>{ const list=b.list||displayMajors(); return list.reduce((t,m)=>t+cgItemAllocated(it,m,sem),0); });
+      const chs = items.map(it=>{ const list=b.list||displayMajors(); return list.reduce((t,m)=>t+cgItemAllocated(it,m,sem),0)+Object.keys(GROUPS).filter(g=>list.some(m=>groupOf(m)===g)).reduce((t,g)=>t+cgItemAllocated(it,g,sem),0); });
       const gH = g => (b.list||displayMajors()).reduce((t,m)=>t+majorGradeHours(m,sem,g),0);
       body += `<tr class="${cls}"><td class="c">${esc(b.name)}</td>${[3,2,1].map(g=>`<td colspan="5"></td><td class="n">${gH(g)}</td>`).join('')}<td class="n">${b.st.subj}</td><td class="n cg-need-value">${cgFmtNeed(cgNeededGroup(b.type==='total'?displayMajors():b.list,sem))}</td>${chs.map((v,i)=>{const need=num(items[i]['need'+sem]); const bad=b.type==='total'&&need&&v!==need; return `<td class="n" ${bad?'style="color:var(--bad)" title="필요 '+need+'"':''}>${v||''}</td>`;}).join('')}${X?`<td class="n">${b.st.ch}</td><td class="n">${b.st.total}</td><td class="n">${fmt1(b.st.avg)}</td>`:`<td class="n">${fmt1(b.st.avgSubj)}</td>`}</tr>`;
     }
@@ -1501,7 +1512,10 @@ function bothSummaryModel(full){
     if(m!==NOMAJOR){ grand[0]+=s1; grand[1]+=s2; }
     out.push({type:'major',major:m,tot:[s1,s2]});
     const grp=groupOf(m), next=majors[i+1];
-    if(grp && groupOf(next)!==grp){const list=GROUPS[grp].filter(x=>majors.includes(x));out.push({type:'group',major:grp+' 계',tot:[1,2].map(sem=>list.reduce((a,mm)=>a+hrs(mm,sem),0))});}
+    if(grp && groupOf(next)!==grp){const list=GROUPS[grp].filter(x=>majors.includes(x));
+      if(X) cgExtraItems().forEach(it=>{ const h=[1,2].map(sem=>cgItemAllocated(it,grp,sem)); if(h[0]||h[1]) out.push({type:'course',extra:true,major:grp+'과',grade:'',name:it.name,sem:{1:h[0]?{sections:null,credits:null,hours:h[0]}:null,2:h[1]?{sections:null,credits:null,hours:h[1]}:null}}); });
+      const gc=[1,2].map(sem=>X?changOf(grp,sem):0); grand[0]+=gc[0]; grand[1]+=gc[1];
+      out.push({type:'group',major:grp+' 계',tot:[1,2].map((sem,k)=>list.reduce((a,mm)=>a+hrs(mm,sem),0)+gc[k])});}
   });
   out.push({type:'grand',major:'전체',tot:grand});
   return out;
@@ -1593,17 +1607,17 @@ function vCompare(){
 /* ----- 5. 정원·강사·창체 탭 ----- */
 /* 6.5.9: ④ 창체·부장 배분 표 — 전공별 평균((교과+창체계)÷정원)을 바로 옆에, 입력하는 즉시 갱신 */
 function cgAvgCells(m,sem){
-  const st=majorStats(m,sem), q=num(cap(m).quota);
+  const st=GROUPS[m]?cgGroupStats(m,sem):majorStats(m,sem), q=GROUPS[m]?st.quota:num(cap(m).quota);
   return `<td class="n" data-live="sj-${esc(m)}">${st.subj||''}</td><td class="n" data-live="tt-${esc(m)}">${st.total||''}</td><td class="n">${q||'—'}</td><td class="n cg-live-avg" data-live="av-${esc(m)}">${q?fmt1(st.avg):'—'}</td>`;
 }
 function cgLiveAlloc(root,m,sem){
   const set=(k,v)=>{ const el=root.querySelector(`[data-live="${CSS.escape(k)}"]`); if(el) el.textContent=v; };
-  const st=majorStats(m,sem), q=num(cap(m).quota);
+  const st=GROUPS[m]?cgGroupStats(m,sem):majorStats(m,sem), q=GROUPS[m]?st.quota:num(cap(m).quota);
   set('ch-'+m, st.ch||''); set('tt-'+m, st.total||''); set('av-'+m, q?fmt1(st.avg):'—');
 }
 function vChang(){
   const sem=UI.changSem,items=cgExtraItems(),majors=displayMajors();
-  const teacherMajors=majors.filter(m=>!isShared(m)&&m!==NOMAJOR);
+  const teacherMajors=allocKeys();
   const br1=cgBreakdown(1),br2=cgBreakdown(2),b=cgBreakdown(sem);
   const cQ=cgQuotaInfo(),schoolAvg=cgSchoolAverage();
   const sumTeach=teacherMajors.reduce((t,m)=>t+num(cap(m).quota),0);
@@ -1622,7 +1636,7 @@ function vChang(){
     <td><button class="btn sm danger" data-act="itemDel" data-i="${i}">삭제</button></td></tr>`).join('');
   const al=S.chang.alloc[sem]=S.chang.alloc[sem]||{};
   const colTot=items.map(it=>teacherMajors.reduce((t,m)=>t+cgItemAllocated(it,m,sem),0));
-  const grid=teacherMajors.map(m=>`<tr><td><b>${esc(m)}</b></td>${items.map(it=>it.id===ONLINE_ITEM_ID?`<td class="c cg-online-col"><input type="number" min="0" class="w40" data-shared="온라인" data-shmaj="${esc(m)}" value="${cgItemAllocated(it,m,sem)||''}" aria-label="${esc(m)} 온라인 배정시수"></td>`:`<td class="c"><input type="number" min="0" class="w40" data-al="${m}" data-item="${it.id}" value="${(al[m]||{})[it.id]??''}"></td>`).join('')}<td class="n strong" data-live="ch-${esc(m)}">${changOf(m,sem)||''}</td>${cgAvgCells(m,sem)}</tr>`).join('');
+  const grid=teacherMajors.map(m=>`<tr><td><b>${esc(allocLabel(m))}</b>${GROUPS[m]?`<br><small class="muted">${esc(GROUPS[m].filter(x=>!isShared(x)).join('·'))} + 통합</small>`:''}</td>${items.map(it=>it.id===ONLINE_ITEM_ID?`<td class="c cg-online-col"><input type="number" min="0" class="w40" data-shared="온라인" data-shmaj="${esc(m)}" value="${cgItemAllocated(it,m,sem)||''}" aria-label="${esc(m)} 온라인 배정시수"></td>`:`<td class="c"><input type="number" min="0" class="w40" data-al="${m}" data-item="${it.id}" value="${(al[m]||{})[it.id]??''}"></td>`).join('')}<td class="n strong" data-live="ch-${esc(m)}">${changOf(m,sem)||''}</td>${cgAvgCells(m,sem)}</tr>`).join('');
   const chk=items.map((it,i)=>{
     const need=num(it['need'+sem]),v=colTot[i],ok=v===need;
     return `<td class="c"><b>${v}/${need}</b> ${ok?'<span class="pill ok">✓</span>':`<span class="pill ${v>need?'bad':'warn'}">${v>need?'+':''}${v-need}</span>`}</td>`;
@@ -1858,7 +1872,7 @@ main.addEventListener('click', async e=>{
     case 'itemAdd': S.chang.items.push({id:uid('c'),name:'새 항목',need1:0,need2:0}); commit(); break;
     case 'itemDel': S.chang.items.splice(i,1); commit(); break;
     case 'copyChang': { const f=UI.changSem, t=3-f; S.chang.alloc[t]=JSON.parse(JSON.stringify(S.chang.alloc[f]||{})); S.sharedAlloc[t]=S.sharedAlloc[t]||{}; S.sharedAlloc[t]['온라인']=JSON.parse(JSON.stringify((S.sharedAlloc[f]||{})['온라인']||{})); commit(); toast(`${f}학기 배정을 ${t}학기로 복사했습니다. 온라인 개설시수 차이를 확인하세요.`); break; }
-    case 'fillFromTeachers': { if(S.teachers.some(t=>!TEACHER_MAJORS.includes(t.major))){toast('전공 미지정 교사가 있습니다. 교사 명단에서 전공을 먼저 지정해 주세요.');break;} const sem=UI.changSem; const al={}, online={}; S.teachers.forEach(t=>{ const a=(t.chang||{})[sem]||{}; S.chang.items.forEach(it=>{ const v=num(a[it.id]); if(v){ al[t.major]=al[t.major]||{}; al[t.major][it.id]=num(al[t.major][it.id])+v; } }); const o=num(a[ONLINE_ITEM_ID]); if(o)online[t.major]=num(online[t.major])+o; });
+    case 'fillFromTeachers': { if(S.teachers.some(t=>!TEACHER_MAJORS.includes(t.major))){toast('전공 미지정 교사가 있습니다. 교사 명단에서 전공을 먼저 지정해 주세요.');break;} const sem=UI.changSem; const al={}, online={}; S.teachers.forEach(t=>{ const a=(t.chang||{})[sem]||{}; S.chang.items.forEach(it=>{ const v=num(a[it.id]); if(v){ const k=allocKey(t.major); al[k]=al[k]||{}; al[k][it.id]=num(al[k][it.id])+v; } }); const o=num(a[ONLINE_ITEM_ID]); if(o)online[t.major]=num(online[t.major])+o; });
       if(!S.teachers.length){ toast('교사 명단에 입력된 값이 없어요'); break; } S.chang.alloc[sem]=al; S.sharedAlloc[sem]=S.sharedAlloc[sem]||{};S.sharedAlloc[sem]['온라인']=online; commit(); toast('교사별 입력값(온라인 포함)을 전공별 배분표에 반영했어요'); break; }
     case 'tAdd': S.teachers.push({id:uid('t'), major:TEACHER_MAJORS.includes(UI.assignMajor)?UI.assignMajor:'국어', name:'', note:'', chang:{1:{},2:{}}}); commit(); break;
     case 'tAddLecturer': S.teachers.push({id:uid('t'), kind:'강사', major:TEACHER_MAJORS.includes(UI.assignMajor)?UI.assignMajor:'국어', name:'', note:'', chang:{1:{},2:{}}}); commit(); toast('시간강사 칸을 추가했어요. 전공과 이름을 적으면 분반 배정에서 고를 수 있어요'); break;
@@ -2036,7 +2050,7 @@ function printSummaryHTML(sem){
         });
         if(i===0){ rows+=`<td rowspan="${b.n}"><b>${b.st.subj||''}</b></td><td rowspan="${b.n}">${cgFmtNeed(cgNeededMajor(b.major,sem))}</td>${items.map(it=>`<td rowspan="${b.n}">${num(al[it.id])||''}</td>`).join('')}${X?`<td rowspan="${b.n}">${b.st.ch||''}</td><td rowspan="${b.n}"><b>${b.st.total||''}</b></td><td rowspan="${b.n}"><b>${fmt1(b.st.avg)}</b></td>`:`<td rowspan="${b.n}"><b>${fmt1(b.st.avgSubj)}</b></td>`}`; }
         rows+='</tr>'; }
-    } else { const list=b.list||displayMajors(); rows+=`<tr class="${b.type==='group'?'grp':'tot'}"><td>${esc(b.name)}</td>${[3,2,1].map(g=>`<td colspan="5"></td><td>${list.reduce((t,m)=>t+majorGradeHours(m,sem,g),0)}</td>`).join('')}<td>${b.st.subj}</td><td>${cgFmtNeed(cgNeededGroup(b.type==='total'?displayMajors():list,sem))}</td>${items.map(it=>`<td>${list.reduce((t,m)=>t+cgItemAllocated(it,m,sem),0)||''}</td>`).join('')}${X?`<td>${b.st.ch}</td><td>${b.st.total}</td><td>${fmt1(b.st.avg)}</td>`:`<td>${fmt1(b.st.avgSubj)}</td>`}</tr>`; }
+    } else { const list=b.list||displayMajors(); rows+=`<tr class="${b.type==='group'?'grp':'tot'}"><td>${esc(b.name)}</td>${[3,2,1].map(g=>`<td colspan="5"></td><td>${list.reduce((t,m)=>t+majorGradeHours(m,sem,g),0)}</td>`).join('')}<td>${b.st.subj}</td><td>${cgFmtNeed(cgNeededGroup(b.type==='total'?displayMajors():list,sem))}</td>${items.map(it=>`<td>${(list.reduce((t,m)=>t+cgItemAllocated(it,m,sem),0)+Object.keys(GROUPS).filter(g=>list.some(m=>groupOf(m)===g)).reduce((t,g)=>t+cgItemAllocated(it,g,sem),0))||''}</td>`).join('')}${X?`<td>${b.st.ch}</td><td>${b.st.total}</td><td>${fmt1(b.st.avg)}</td>`:`<td>${fmt1(b.st.avgSubj)}</td>`}</tr>`; }
   });
   return `<div class="top"><div></div>${signTable()}</div><h1>${S.year}학년도 ${sem}학기 교과 수업시수 배당표</h1>
    <table class="sm"><thead><tr><th rowspan="2">교과</th>${[3,2,1].map(g=>`<th colspan="6">${g}학년</th>`).join('')}<th rowspan="2">교과<br>계</th><th rowspan="2">필요정원</th>${X?`<th colspan="${items.length+1}">부장·창체 등</th><th rowspan="2">총계</th>`:''}<th rowspan="2">${X?'평균':'교과<br>평균'}</th></tr>
@@ -2102,7 +2116,7 @@ function exportXlsx(){
         }
         if(b.n>1){ [0,6,12,18].forEach(c=>merges.push({s:{r:r0,c},e:{r:r0+b.n-1,c}})); for(let c=base;c<=base+4+items.length;c++) merges.push({s:{r:r0,c},e:{r:r0+b.n-1,c}}); }
       } else { const list=b.list||displayMajors(); const row=[b.name]; [3,2,1].forEach(g=>row.push(null,null,null,null,null,list.reduce((t,m)=>t+majorGradeHours(m,sem,g),0)));
-        row.push(b.st.subj,cgNeededGroup(list,sem),...items.map(it=>list.reduce((t,m)=>t+cgItemAllocated(it,m,sem),0)||null),b.st.ch,b.st.total,b.st.avg==null?null:Math.round(b.st.avg*10)/10); aoa.push(row); }
+        row.push(b.st.subj,cgNeededGroup(list,sem),...items.map(it=>(list.reduce((t,m)=>t+cgItemAllocated(it,m,sem),0)+Object.keys(GROUPS).filter(g=>list.some(m=>groupOf(m)===g)).reduce((t,g)=>t+cgItemAllocated(it,g,sem),0))||null),b.st.ch,b.st.total,b.st.avg==null?null:Math.round(b.st.avg*10)/10); aoa.push(row); }
     });
     const ws=XLSX.utils.aoa_to_sheet(aoa); ws['!merges']=merges;
     ws['!cols']=[{wch:10},...[0,1,2].flatMap(()=>[{wch:20},{wch:5},{wch:5},{wch:5},{wch:5},{wch:6}]),{wch:8},{wch:6},...items.map(()=>({wch:8})),{wch:7},{wch:7},{wch:6},{wch:7}];
