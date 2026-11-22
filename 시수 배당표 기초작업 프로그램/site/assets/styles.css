@@ -921,3 +921,6 @@ table.t thead th{font-size:13px;line-height:1.4}
 .cg-live-box small{flex-basis:100%;color:#64748b;font-size:12px}
 .cg-live-per{color:#1d4ed8;font-weight:700}
 @media(max-width:700px){.cg-live-box{position:static}.cg-live-box div{min-width:90px}.cg-live-box strong{font-size:17px}.cg-live-box .main strong{font-size:20px}}
+/* 6.5.9 ④ 전공별 평균 */
+.cg-avg-h{background:#eef4ff!important;color:#1e3a8a!important}
+.cg-live-avg{color:#1d4ed8;font-weight:800;font-size:14px}
