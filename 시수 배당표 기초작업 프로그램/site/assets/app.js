@@ -1536,14 +1536,14 @@ function buildBothSummaryHTML(){
         return s?[td(s.sections,'cg-sem'+sem),td(s.credits,'cg-sem'+sem),td(s.hours,'cg-net cg-sem'+sem)]:[td(null,'cg-grey'),td(null,'cg-grey'),td(null,'cg-grey')];
       });
       const year=(Number(r.sem[1]?.hours||0)+Number(r.sem[2]?.hours||0))/2;
-      return `<tr data-bothmaj="${esc(r.major)}" ${closed[r.major]?'hidden':''}><td class="c">${esc(resultLabel(r.major))}</td><td class="c">${r.extra?'—':r.grade}</td><td class="cg-course-name${r.extra?' cg-extra-row':''}" title="${esc(r.name)}">${esc(r.name)}${r.extra?' <span class="muted small">(배정)</span>':''}</td>${info.flat().join('')}<td class="c cg-yearavg">${fmt1(year)}</td><td class="c cg-grey">—</td><td class="c cg-grey">—</td></tr>`;
+      return `<tr data-bothmaj="${esc(r.major)}" ${closed[r.major]?'hidden':''}><td class="c">${esc(resultLabel(r.major))}</td><td class="c">${r.extra?'—':r.grade}</td><td class="cg-course-name${r.extra?' cg-extra-row':''}" title="${esc(r.name)}">${esc(r.name)}${r.extra?' <span class="muted small">(배정)</span>':''}</td>${info.flat().join('')}<td class="c cg-yearavg">${fmt1(year)}</td><td class="c cg-grey">—</td><td class="c cg-grey">—</td><td class="c cg-grey">—</td></tr>`;
     }
     const cls=r.type==='grand'?'cg-grand-total':r.type==='group'?'cg-group-total':'cg-major-total';
     const tog=r.type==='major'?`<button class="cg-fold" data-act="bothToggle" data-m="${esc(r.major)}" aria-expanded="${closed[r.major]?'false':'true'}" title="과목 ${closed[r.major]?'펼치기':'접기'}">${closed[r.major]?'▸':'▾'}</button> `:'';
-    return `<tr class="${cls}"><td>${tog}${esc(resultLabel(r.major))}</td><td></td><td>${r.type==='major'?'전공 소계':'합계'}</td><td></td><td></td>${td(r.tot[0],'cg-net')}<td></td><td></td>${td(r.tot[1],'cg-net')}${td(fmt1((r.tot[0]+r.tot[1])/2),'cg-yearavg')}${td(cgFmtNeed(r.type==='major'?cgNeededMajor(r.major,null):cgNeededGroup(r.type==='grand'?displayMajors():GROUPS[r.major.replace(' 계','')]||[],null)),'cg-need-value')}${td(cgCurQuota(r),'cg-cur-quota')}</tr>`;
+    return `<tr class="${cls}"><td>${tog}${esc(resultLabel(r.major))}</td><td></td><td>${r.type==='major'?'전공 소계':'합계'}</td><td></td><td></td>${td(r.tot[0],'cg-net')}<td></td><td></td>${td(r.tot[1],'cg-net')}${td(fmt1((r.tot[0]+r.tot[1])/2),'cg-yearavg')}${td((q=>q?fmt1((r.tot[0]+r.tot[1])/2/q):null)(num(cgCurQuota(r))),'cg-per-avg')}${td(cgFmtNeed(r.type==='major'?cgNeededMajor(r.major,null):cgNeededGroup(r.type==='grand'?displayMajors():GROUPS[r.major.replace(' 계','')]||[],null)),'cg-need-value')}${td(cgCurQuota(r),'cg-cur-quota')}</tr>`;
   }).join('');
   return `<div class="cg-both-head"><div><h3 style="margin:0 0 4px">1·2학기 과목별 한 줄 비교</h3><p class="cg-help">과목별 분반 이름·인원은 생략했습니다. '전공없음' 과목은 맨 아래 전공없음 줄에 따로 모여 있어요. <b>반 수</b>는 개설 분반 수, <b>단위 시수</b>는 분반당 시수, <b>합</b>은 반 수 × 단위 시수입니다. 전공 이름 앞 ▾를 누르면 과목을 접고 펼 수 있어요.</p></div><div class="row noprint"><button class="btn sm" data-act="bothFoldAll">모두 접기</button><button class="btn sm" data-act="bothOpenAll">모두 펴기</button></div></div>
-  <div class="tablewrap cg-both-scroll"><table class="t cg-both-summary"><thead><tr><th rowspan="2">전공</th><th rowspan="2">학년</th><th rowspan="2">과목명</th><th colspan="3">1학기</th><th colspan="3">2학기</th><th rowspan="2">연간<br>평균 합</th><th rowspan="2">전공별<br>필요정원</th><th rowspan="2">현정원</th></tr><tr><th>반 수</th><th>단위 시수</th><th>합</th><th>반 수</th><th>단위 시수</th><th>합</th></tr></thead><tbody>${out}</tbody></table></div>`;
+  <div class="tablewrap cg-both-scroll"><table class="t cg-both-summary"><thead><tr><th rowspan="2">전공</th><th rowspan="2">학년</th><th rowspan="2">과목명</th><th colspan="3">1학기</th><th colspan="3">2학기</th><th rowspan="2">연간<br>평균 합</th><th rowspan="2">1인 평균<br><small>(평균 합÷현정원)</small></th><th rowspan="2">전공별<br>필요정원</th><th rowspan="2">현정원</th></tr><tr><th>반 수</th><th>단위 시수</th><th>합</th><th>반 수</th><th>단위 시수</th><th>합</th></tr></thead><tbody>${out}</tbody></table></div>`;
 }
 
 function vSummary(){
@@ -2122,12 +2122,12 @@ function exportXlsx(){
     ws['!cols']=[{wch:10},...[0,1,2].flatMap(()=>[{wch:20},{wch:5},{wch:5},{wch:5},{wch:5},{wch:6}]),{wch:8},{wch:6},...items.map(()=>({wch:8})),{wch:7},{wch:7},{wch:6},{wch:7}];
     XLSX.utils.book_append_sheet(wb, ws, `총괄_${sem}학기`);
   });
-  { const aoa=[[`${S.year}학년도 1·2학기 과목별 통합 배당표`],['전공','학년','과목','1학기 반 수','1학기 단위 시수','1학기 합','2학기 반 수','2학기 단위 시수','2학기 합','연간 평균 합','전공 필요정원','현정원']];
+  { const aoa=[[`${S.year}학년도 1·2학기 과목별 통합 배당표`],['전공','학년','과목','1학기 반 수','1학기 단위 시수','1학기 합','2학기 반 수','2학기 단위 시수','2학기 합','연간 평균 합','1인 평균(평균 합÷현정원)','전공 필요정원','현정원']];
     bothSummaryModel(true).forEach(r=>{
-      if(r.type==='course'){const a=r.sem[1],b=r.sem[2];aoa.push([resultLabel(r.major),r.extra?null:r.grade,r.name,a?.sections??null,a?.credits??null,a?.hours??null,b?.sections??null,b?.credits??null,b?.hours??null,((a?.hours||0)+(b?.hours||0))/2,null,null]);}
-      else aoa.push([r.major,null,r.type==='major'?'전공 소계':'합계',null,null,r.tot[0],null,null,r.tot[1],(r.tot[0]+r.tot[1])/2,r.type==='major'?cgNeededMajor(r.major,null):cgNeededGroup(r.type==='grand'?displayMajors():GROUPS[r.major.replace(' 계','')]||[],null),cgCurQuota(r)]);
+      if(r.type==='course'){const a=r.sem[1],b=r.sem[2];aoa.push([resultLabel(r.major),r.extra?null:r.grade,r.name,a?.sections??null,a?.credits??null,a?.hours??null,b?.sections??null,b?.credits??null,b?.hours??null,((a?.hours||0)+(b?.hours||0))/2,null,null,null]);}
+      else aoa.push([r.major,null,r.type==='major'?'전공 소계':'합계',null,null,r.tot[0],null,null,r.tot[1],(r.tot[0]+r.tot[1])/2,(q=>q?Math.round((r.tot[0]+r.tot[1])/2/q*10)/10:null)(num(cgCurQuota(r))),r.type==='major'?cgNeededMajor(r.major,null):cgNeededGroup(r.type==='grand'?displayMajors():GROUPS[r.major.replace(' 계','')]||[],null),cgCurQuota(r)]);
     });
-    const ws=XLSX.utils.aoa_to_sheet(aoa);ws['!cols']=[{wch:14},{wch:6},{wch:27},...Array(9).fill({wch:12})];
+    const ws=XLSX.utils.aoa_to_sheet(aoa);ws['!cols']=[{wch:14},{wch:6},{wch:27},...Array(10).fill({wch:12})];
     XLSX.utils.book_append_sheet(wb,ws,'1·2학기 한줄통합');
   }
   { const aoa=[[`${S.year}학년도 1·2학기 비교`],['교과(전공)','필요정원(연간)','1학기 교과','1학기 창체','1학기 평균','2학기 교과','2학기 창체','2학기 평균','증감']];
